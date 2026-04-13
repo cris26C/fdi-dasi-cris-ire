@@ -1,0 +1,3 @@
+AGENT_NAME = "Cris-Ire"
+URL_SERVER = "http://147.96.80.224:7719"
+#URL_SERVER = "http://127.0.0.1:7719"

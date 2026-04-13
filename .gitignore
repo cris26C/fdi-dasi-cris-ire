@@ -1,0 +1,5 @@
+fdi-dasi/ollama-linux/
+__pycache__/
+.pyre/
+.venv/
+fdi-dasi/ollama-linux-amd64.tar.zst
