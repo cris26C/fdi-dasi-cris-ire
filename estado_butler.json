@@ -1,0 +1,16 @@
+{
+  "127.0.0.1": {
+    "Alias": "GATO",
+    "Recursos": {
+      "trigo": 2,
+      "arroz": 2,
+      "tela": 4,
+      "oro": 17
+    },
+    "Objetivo": {
+      "trigo": 4,
+      "madera": 5,
+      "piedra": 5
+    }
+  }
+}

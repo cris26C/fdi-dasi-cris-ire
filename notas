@@ -1,0 +1,16 @@
+wget -c https://ollama.com/download/ollama-linux-amd64.tar.zst
+bin/ollama serve
+bin/ollama run qwen3-vl:8b
+
+
+python3 -m venv venv
+source venv/bin/activate
+
+uv run main.py
+
+loguru
+uv run services/ollama_service.py 
+defaultdict
+ministral
+
+fdi-pln-butler server
