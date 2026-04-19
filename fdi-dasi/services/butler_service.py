@@ -1,8 +1,10 @@
+from typing import Optional
+
 import requests
 from loguru import logger
 import asyncio
 import httpx
-from constants import URL_SERVER
+from config import config
 
 user_connected = []
 
@@ -26,8 +28,8 @@ def get_user_to_negotiate(agent_name):
     users = get_connected_users()
 
     for user in users:
-        if user['alias'] == agent_name:
-             continue
+        # if user['alias'] == agent_name:
+        #      continue
 
         existing_user = next((u for u in user_connected if u['alias'] == user['alias']), None)
         if existing_user is not None:
@@ -57,7 +59,10 @@ async def send_message(msg: str, ip: str):
         })
     return response.json()
 
-def send_message_by_alias(msg: str, alias: str):
+def send_message_by_alias(msg: Optional[str], alias: Optional[str]):
+    if msg is None or alias is None:
+        raise ValueError("El mensaje y el alias no pueden ser None.")
+
     users = get_connected_users()
     for user in users:
         if user['alias'] == alias:
@@ -66,23 +71,20 @@ def send_message_by_alias(msg: str, alias: str):
 
 def get_connected_users():
     """Obtiene la lista de usuarios (gente) conectados al servidor central"""
-    response = requests.get(f'{URL_SERVER}/gente', timeout=5)
+    response = requests.get(f'{config.URL_BUTLER_SERVER}/gente', timeout=5)
     response.raise_for_status()
     return response.json()
 
-def create_alias(alias, agente):
-    return requests.post(f'{URL_SERVER}/alias/{alias}', params = {"agente": agente})
-
 def get_information():
     """Obtiene la información del agente desde el servidor central"""
-    response = requests.get(f'{URL_SERVER}/info', timeout=5)
+    response = requests.get(f'{config.URL_BUTLER_SERVER}/info', timeout=5)
     response.raise_for_status()
     logger.info("Información del agente obtenida exitosamente.")
     return response.json()
 
 def create_alias(alias):
     """Crea un alias para el agente en el servidor central"""
-    response = requests.post(f'{URL_SERVER}/alias/{alias}')
+    response = requests.post(f'{config.URL_BUTLER_SERVER}/alias/{alias}')
     response.raise_for_status()
     logger.info(f"Alias '{alias}' creado exitosamente.")
     return response.json()
@@ -116,7 +118,7 @@ def get_or_create_alias(alias: str) -> str:
 def get_actual_resources_and_objectives():
     """Obtiene los recursos actuales y objetivos del agente desde el servidor central
         y calcula los recursos faltantes y sobrantes"""
-    response = requests.get(f'{URL_SERVER}/info')
+    response = requests.get(f'{config.URL_BUTLER_SERVER}/info')
     response.raise_for_status()
     logger.info("Recursos y objetivos obtenidos exitosamente.")
     data = response.json()

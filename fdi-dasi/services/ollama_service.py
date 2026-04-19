@@ -1,15 +1,62 @@
+from services import (get_connected_users,
+                      get_actual_resources_and_objectives,
+                      send_message,
+                      get_my_ip_by_alias,
+                      send_package)
 from ollama import chat
-from .butler_service import get_actual_resources_and_objectives, get_connected_users, send_message
 from loguru import logger
-from .butler_service import get_my_ip_by_alias, send_package
+from config import config
 import asyncio
-import requests
 import json
 
 MAX_MSGS = 15
 
 # System promt, indica reglas y uso de tools
 
+TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "enviar_respuesta",
+            "description": "Envía un mensaje a otro agente utilizando su alias",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "alias": {
+                        "type": "string",
+                        "description": "El alias del agente al que se quiere enviar el mensaje"
+                    },
+                    "mensaje": {
+                        "type": "string",
+                        "description": "El mensaje a enviar"
+                    }
+                },
+                "required": ["alias", "mensaje"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "send_package",
+            "description": "Envía un paquete de recursos a otro agente utilizando su alias",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "alias": {
+                        "type": "string",
+                        "description": "El alias del agente al que se quiere enviar el paquete"
+                    },
+                    "package": {
+                        "type": "object",
+                        "description": "El paquete de recursos a enviar, en formato JSON, por ejemplo: {'madera': 2, 'hierro': 1}"
+                    }
+                },
+                "required": ["alias", "package"],
+            }
+        }
+    }
+]
 
 def get_system_prompt_by_alias(alias):
     return """Eres un agente negociador. Tu única forma de comunicarte es mediante JSON.
@@ -50,14 +97,19 @@ def get_system_prompt_by_alias(alias):
     - NUNCA uses send_package sin confirmación explícita de acuerdo por ambas partes
     """
 # tool para enviar una respuesta
-async def enviar_respuesta(alias: str, msg: str):
+async def enviar_respuesta(alias: str, mensaje: str):
     # Enviamos la respueta
     logger.debug(f'enviando respuesta a {alias}')
     # Obtenemos la ip a partir del alias
     ip = get_my_ip_by_alias(alias)
     if ip:
-        await send_message(msg, ip)
+        await send_message(mensaje, ip)
     return f"Respuesta enviada a {alias}"
+
+AVAILABLE_TOOLS = {
+    "enviar_respuesta": enviar_respuesta,
+    "send_package": send_package
+}
 
 class Orchestrator:
     def __init__(self):
@@ -109,60 +161,80 @@ class Orchestrator:
             # reintroducimos el system promt en la primera posición
             list_act[0]['role'] = 'system'
             list_act[0]['content'] = system_content
-            logger.debug(f"[{alias}] >> {list_act}")
+
+            # logger.debug(f"[{alias}] >> {list_act}")
 
             try:
                 response = await asyncio.wait_for(
                     asyncio.to_thread(
                     chat,
-                    #'qwen3-vl:8b',
-                    'mistral', 
+                    model=config.LLM_MODEL, 
                     messages= list_act,
-                    format='json'
+                    format='json',
+                    tools=TOOLS
                     ),
                     timeout=180
                 )
             except asyncio.TimeoutError:
                 logger.error("Timeout en Ollama")
                 return "Vuelve a preguntar, no he sido capaz de responder"
-
-            mensaje = json.loads(response.message.content)
-
-            if 'content' in mensaje:
-                content = mensaje['content']
-                if type(content) == str:
-                    mensaje = json.loads(content)
-                else:
-                    mensaje = content
-
-            logger.debug(f'respuesta: {mensaje}')
             
-            for call in mensaje["list_tools"]:
+            tools_calls = []
+            message = None
+            if 'message' in response:
+                message = response['message']
+            logger.debug(f"[ollama] >> respuesta recibida: {response}")
+            if 'message' in response and 'tool_calls' in response['message']:
+                tools_calls = response['message']['tool_calls']
 
-                if call == "enviar_respuesta":
-                    params = mensaje["dict_parameters"]
-                    values = list(dict.values(params))
-                    logger.debug(f"[enviar_respuesta] >> Enviando estos parametros: {values}")
-                    result = await enviar_respuesta(values[0], mensaje['msg'])
+            for tool_call in tools_calls:
+                name = tool_call.function.name
+                arguments = tool_call.function.arguments
+                if name in AVAILABLE_TOOLS:
+                    response = await AVAILABLE_TOOLS[name](**arguments)
+                    logger.debug(f"[ollama] >> resultado de la herramienta {name}: {response}")
+            # if response is None or response.message is None or response.message.content is None:
+            #     logger.error("Respuesta de Ollama es None")
+            #     return "Vuelve a preguntar, no he sido capaz de responder"
+            
+            # mensaje = json.loads(response.message.content)
 
-                if call == "send_package":
-                    params = mensaje["dict_parameters"]
-                    values = list(dict.values(params))
-                    logger.debug(f"[send_package] >> Enviando estos parametros: {values}")
-                    result = await send_package(values[0], values[1])
+            # if 'content' in mensaje:
+            #     content = mensaje['content']
+            #     if type(content) == str:
+            #         mensaje = json.loads(content)
+            #     else:
+            #         mensaje = content
 
-                list_act.append({
-                    "role": "tool",
-                    "name": call,
-                    "content": str(result)
-                })
+            # logger.debug(f'respuesta: {mensaje}')
+            
+            # for call in mensaje["list_tools"]:
+            #     result = None
+
+            #     if call == "enviar_respuesta":
+            #         params = mensaje["dict_parameters"]
+            #         values = list(dict.values(params))
+            #         logger.debug(f"[enviar_respuesta] >> Enviando estos parametros: {values}")
+            #         result = await enviar_respuesta(values[0], mensaje['msg'])
+
+            #     if call == "send_package":
+            #         params = mensaje["dict_parameters"]
+            #         values = list(dict.values(params))
+            #         logger.debug(f"[send_package] >> Enviando estos parametros: {values}")
+            #         result = await send_package(values[0], values[1])
+
+            #     list_act.append({
+            #         "role": "tool",
+            #         "name": call,
+            #         "content": str(result)
+            #     })
 
             # Se introduce en la conversación la respuesta
-            list_act.append({'role': 'assistant', 'content': mensaje["msg"]})
+            # list_act.append({'role': 'assistant', 'content': mensaje["msg"]})
             logger.debug(f"[ollama] >> respuesta recibida")
             self.conversaciones[alias] = list_act
 
-            return mensaje["msg"]
+            return message
 
     async def worker(self, alias, buzon):
         # Siempre envía un mensaje al iniciar
@@ -194,7 +266,7 @@ class Orchestrator:
     async def start_agents(self):
         info = get_connected_users()
         for user in info:
-            asyncio.create_task(self.worker(user["alias"]))
+            asyncio.create_task(self.worker(user["alias"], self.BUZON))
 
     async def add_worker_alias(self, alias):
         logger.debug(f"Enviando buzon: {self.BUZON}")

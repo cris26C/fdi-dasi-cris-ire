@@ -3,3 +3,6 @@ __pycache__/
 .pyre/
 .venv/
 fdi-dasi/ollama-linux-amd64.tar.zst
+.env
+uv.lock
+.env*
