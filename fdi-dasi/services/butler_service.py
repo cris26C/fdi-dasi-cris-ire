@@ -11,7 +11,7 @@ user_connected = []
 async def create_agent_and_connect(orchestrator, agent_name):
     get_or_create_alias(agent_name)
     negotiation_user_list = get_user_to_negotiate(agent_name)
-    print(f"1. Usuarios conectados: {user_connected}")
+    logger.info(f"Usuarios a negociar: {negotiation_user_list}")
     try:
         while True: 
             logger.info(f"Usuarios conectados: {user_connected}")
@@ -28,8 +28,8 @@ def get_user_to_negotiate(agent_name):
     users = get_connected_users()
 
     for user in users:
-        # if user['alias'] == agent_name:
-        #      continue
+        if user['alias'] == agent_name:
+              continue
 
         existing_user = next((u for u in user_connected if u['alias'] == user['alias']), None)
         if existing_user is not None:
@@ -153,7 +153,7 @@ def get_alias_by_ip(ip):
             return user['alias']
     return None
 
-async def send_package(to_alias, package):
+async def send_package(alias, package):
     """"
     El formato del paquete es un diccionario con los recursos que se quieren enviar, por ejemplo:
     {
@@ -163,8 +163,8 @@ async def send_package(to_alias, package):
     """
     users = get_connected_users()
     for user in users:
-        if user['alias'] == to_alias:
+        if user['alias'] == alias:
             async with httpx.AsyncClient() as client:
-                response = await client.post(f'http://{user["ip"]}:7720/paquete/{to_alias}', json=package)
+                response = await client.post(f'http://{user["ip"]}:7720/paquete/{alias}', json=package)
                 return response.json()
-    raise ValueError(f"Alias '{to_alias}' no encontrado entre los usuarios conectados.")
+    raise ValueError(f"Alias '{alias}' no encontrado entre los usuarios conectados.")

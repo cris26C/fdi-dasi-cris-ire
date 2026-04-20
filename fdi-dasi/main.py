@@ -39,11 +39,13 @@ async def receive_message(
     ):
     try:
         msg = agent_message.msg
-        logger.info(f"Mensaje recibido: {msg}")
         client_host = request.client.host # type: ignore
         alias = get_alias_by_ip(client_host)
+        logger.info(f">>>>>> [{alias}] Mensaje recibido: {msg}")
+
         # Guardar mensaje en buzón
         await app.state.orch.save_message(alias, msg)
+        await app.state.orch.respuesta(alias, msg)
         logger.info(f">> {client_host} dice: {msg}")
         return True       
     except Exception as e:
