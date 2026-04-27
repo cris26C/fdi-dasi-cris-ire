@@ -1,5 +1,5 @@
+import json
 from typing import Optional
-
 import requests
 from loguru import logger
 import asyncio
@@ -7,17 +7,21 @@ import httpx
 from config import config
 
 user_connected = []
-
-async def create_agent_and_connect(orchestrator, agent_name):
+TIMEOUT = 30.0
+async def create_agent_and_connect(agent, agent_name):
     get_or_create_alias(agent_name)
-    negotiation_user_list = get_user_to_negotiate(agent_name)
-    logger.info(f"Usuarios a negociar: {negotiation_user_list}")
     try:
         while True: 
             logger.info(f"Usuarios conectados: {user_connected}")
             negotiation_user_list = get_user_to_negotiate(agent_name)
+            await asyncio.sleep(5)
+
+            #TODO: Task group para enviar mensajes a multiples agentes a la vez
             for user in negotiation_user_list:
-                await orchestrator.add_worker_alias(user['alias'])
+                # await orchestrator.add_worker_alias(user['alias'])
+                await agent.send_greeting(user['alias'])
+                user['notified'] = True
+                break
             await asyncio.sleep(5)
             break
     except asyncio.CancelledError:
@@ -28,8 +32,8 @@ def get_user_to_negotiate(agent_name):
     users = get_connected_users()
 
     for user in users:
-        if user['alias'] == agent_name:
-              continue
+        # if user['alias'] == agent_name:
+        #       continue
 
         existing_user = next((u for u in user_connected if u['alias'] == user['alias']), None)
         if existing_user is not None:
@@ -41,19 +45,12 @@ def get_user_to_negotiate(agent_name):
     return [user for user in user_connected if not user['notified']]
     
 
-async def async_send_message(msg: str, ip: str):
-    route = f'http://{ip}:7720/buzon'
-    async with httpx.AsyncClient() as client:
-        response = await client.post(route, json={
-            "msg": msg
-        })
-        return response.json()
 
 async def send_message(msg: str, ip: str):
     route = f'http://{ip}:7720/buzon'
     logger.info(f"Enviando mensaje a {route}: {msg}")
 
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
         response = await client.post(route, json={
             "msg": msg
         })
@@ -98,9 +95,12 @@ def get_my_alias(alias):
 
 def get_my_ip_by_alias(alias):
     users = get_connected_users()
+    logger.info(f"Buscando IP para el alias '{alias}' entre los usuarios conectados: {users}")
     for user in users:
         if user['alias'] == alias:
+            logger.info(f"IP encontrada para el alias '{alias}': {user['ip']}")
             return user['ip']
+    logger.warning(f"No se encontró IP para el alias '{alias}'")
     return None
 
 def get_or_create_alias(alias: str) -> str:
@@ -153,7 +153,7 @@ def get_alias_by_ip(ip):
             return user['alias']
     return None
 
-async def send_package(alias, package):
+async def send_package(alias, package: str):
     """"
     El formato del paquete es un diccionario con los recursos que se quieren enviar, por ejemplo:
     {
@@ -164,7 +164,30 @@ async def send_package(alias, package):
     users = get_connected_users()
     for user in users:
         if user['alias'] == alias:
-            async with httpx.AsyncClient() as client:
-                response = await client.post(f'http://{user["ip"]}:7720/paquete/{alias}', json=package)
+            async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+                package_dict = json.loads(package)  # Convertir el string JSON a un diccionario
+                response = await client.post(f'http://{user["ip"]}:7720/paquete/{alias}', json=package_dict)
                 return response.json()
     raise ValueError(f"Alias '{alias}' no encontrado entre los usuarios conectados.")
+
+async def send_message_to_alias(alias: str, mensaje: str):
+    if not isinstance(alias, str) or not isinstance(mensaje, str):
+        logger.error(f"El LLM alucinó los argumentos: alias={type(alias)}, mensaje={type(mensaje)}")
+        # Le devuelves un texto al LLM para que se dé cuenta de su error y lo intente de nuevo
+        return "ERROR INTERNO: Has usado mal la herramienta. 'alias' y 'mensaje' DEBEN ser texto plano (strings), no objetos JSON con descripciones."
+    logger.info(f"Preparando para enviar mensaje al alias '{alias}': {mensaje}")
+    ip = get_my_ip_by_alias(alias)
+
+    route = f'http://{ip}:{config.PORT}/buzon'
+    logger.info(f"Enviando mensaje a {route}: {mensaje}")
+
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+            response = await client.post(route, json={
+                "msg": mensaje
+            })
+            response.raise_for_status() # Verifica que el otro servidor respondió 200 OK
+        return response.json()
+    except Exception as e:
+        logger.error(f"Error enviando mensaje a {route}: {e}")
+        return f"Error: No se pudo contactar al agente en {route}"
