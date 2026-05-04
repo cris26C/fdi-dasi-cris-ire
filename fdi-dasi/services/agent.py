@@ -275,7 +275,7 @@ class Agent:
         """Clear memory and first-contact flag for an alias so a new negotiation cycle begins."""
         logger.info(f"Reiniciando ciclo de negociación con '{alias}'.")
         self._initiated_aliases.discard(alias)
-        active_sessions.pop(alias, None)
+        #active_sessions.pop(alias, None)
 
     def sync_memory(self, alias_name: str, tool_executed: list, content: Optional[str] = None):
         # {"name": name, "arguments": arguments, "response": response}

@@ -10,7 +10,8 @@ from contextlib import asynccontextmanager
 from loguru import logger
 from config import config
 from services import (create_agent_and_connect, 
-                      get_alias_by_ip, 
+                      get_alias_by_ip,
+                      get_actual_resources_and_objectives,
                       Agent)
 import uvicorn 
 import random
@@ -75,9 +76,11 @@ async def websocket_endpoint(websocket: WebSocket):
         while True:
             agent: Agent = app.state.agent
             memory = agent.get_memory()
+            resources = get_actual_resources_and_objectives()
             data = {
                 "agent_name": agent.name,
-                "memory": memory
+                "memory": memory,
+                "resources": resources
             }
             await websocket.send_json(data)
             await asyncio.sleep(1)
