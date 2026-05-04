@@ -15,6 +15,7 @@
                 <h1>{{ title }} <span class="owner-tag" id="current-agent-name">...</span></h1>
             </div>
             <p>Operador: <strong>{{ user_name }}</strong></p>
+            <p id = "resources"></p>
         </header>
 
         <!-- Métricas Rápidas -->
@@ -81,7 +82,7 @@
             document.getElementById('total-agents').innerText = agentKeys.length;
             document.getElementById('total-messages').innerText = totalMsgs;
             document.getElementById('last-update').innerText = new Date().toLocaleTimeString();
-
+            document.getElementById("resources").innerText = "FALTANTE: " + JSON.stringify(fullData["resources"]["faltante"]) + "OBJETIVO: " + JSON.stringify(fullData["resources"]["objetivo"]);
             // 2. Actualizar Sidebar y Chat
             updateSidebar(memory);
             if (selectedAgent && memory[selectedAgent]) {

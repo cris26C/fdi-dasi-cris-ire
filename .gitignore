@@ -8,3 +8,6 @@ uv.lock
 .env*
 
 estado_butler.json
+
+ollama-linux
+ollama-linux-amd64.tar.zst

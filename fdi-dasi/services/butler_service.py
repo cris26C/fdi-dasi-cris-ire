@@ -35,8 +35,7 @@ async def ensure_alias_registered(alias: str, base_delay: float = 2.0, max_delay
 
 
 async def create_agent_and_connect(agent, agent_name, greetings_enabled: bool = True):
-    await ensure_alias_registered(agent_name)
-    
+    get_or_create_alias(agent_name)    
     # Mantenemos un registro local de a quién ya saludamos en esta sesión
     # para no depender únicamente de lo que devuelva la API
     notified_aliases = set()
