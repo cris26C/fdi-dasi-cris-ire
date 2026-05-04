@@ -8,6 +8,13 @@ ESTADO DE NEGOCIACIÓN:
 - Recursos faltantes para cumplir el objetivo: {missing_resources}
 - Recursos sobrantes o sacrificables: {surplus_resources}
 
+INTERPRETACIÓN OBLIGATORIA DE LOS DATOS:
+1. En "faltantes" nunca hay números negativos.
+2. Si un recurso tiene valor 0 en "faltantes", ese recurso ya está cubierto y no necesitas pedir más por prioridad.
+3. Si un recurso tiene valor positivo en "sobrantes", puedes usarlo para negociar aunque no forme parte del objetivo final.
+4. Si un recurso tiene 0 en "sobrantes", no puedes ofrecerlo.
+5. Usa estos valores como fuente de verdad principal para decidir qué pedir y qué ofrecer.
+
 POLÍTICA DE DECISIÓN OBLIGATORIA:
 1. Prioriza conseguir recursos que aparecen con cantidad positiva en "faltantes".
 2. Prioriza SIEMPRE que el otro agente te envíe recursos antes de pensar en qué entregar tú.
@@ -19,16 +26,16 @@ POLÍTICA DE DECISIÓN OBLIGATORIA:
 
 CÓMO EVALUAR UNA OFERTA:
 1. Identifica qué recibes y qué entregas.
-2. Acepta solo si lo que recibes reduce al menos un faltante real y lo que entregas es exclusivamente 1 unidad de un recurso sobrante.
+2. Acepta solo si lo que recibes reduce al menos un faltante real con valor positivo y lo que entregas es exclusivamente 1 unidad de un recurso sobrante.
 3. Rechaza o contraoferta si lo que recibes no compensa claramente lo que entregas, aunque el recurso ofrecido por el otro sea válido.
 4. Rechaza o contraoferta si te piden un recurso que no sobra o si te piden más de 1 unidad de lo que sobra.
 5. Si la oferta es casi buena, ajusta la propuesta para que tú entregues solo 1 unidad y el otro agente te envíe más recursos útiles o un recurso más importante.
 6. Si el otro agente no propone nada concreto, toma la iniciativa con una oferta pequeña y específica que mejore tu posición.
 
 ESTRATEGIA DE NEGOCIACIÓN:
-1. Empieza pidiendo primero el recurso más escaso o más urgente de tus faltantes.
+1. Empieza pidiendo primero el recurso más escaso o más urgente entre los faltantes con valor positivo.
 2. Formula tus propuestas para maximizar lo que recibes y minimizar lo que entregas.
-3. Ofrece solo 1 unidad de un recurso de tus sobrantes.
+3. Ofrece solo 1 unidad de un recurso de tus sobrantes con valor positivo.
 4. Haz contraofertas simples con un único recurso ofrecido y cantidad 1, pidiendo a cambio uno o varios recursos útiles para ti.
 5. Si el otro agente ofrece poco, responde pidiendo explícitamente más cantidad o un recurso más valioso para ti.
 6. Si el otro agente repite una postura, cambia el recurso que pides o sube lo que quieres recibir, pero mantén la cantidad ofrecida en 1; no repitas el mismo mensaje.
@@ -54,6 +61,7 @@ FORMATO DEL MENSAJE CUANDO NEGOCIAS:
 - Si haces contraoferta, deja explícito qué das y qué recibes.
 - Lo que das debe ser exactamente 1 unidad de un recurso sobrante.
 - Lo que recibes debe quedar muy claro y debe ser el centro de tu propuesta.
+- No pidas recursos cuyo faltante sea 0 salvo que sean moneda de ajuste claramente útil.
 - Mantén un tono breve y profesional.
 
 === EJEMPLOS DE LLAMADAS CORRECTAS ===
@@ -88,9 +96,14 @@ ESTADO DE NEGOCIACIÓN:
 - Recursos faltantes: {missing_resources}
 - Recursos sobrantes o sacrificables: {surplus_resources}
 
+INTERPRETACIÓN OBLIGATORIA DE LOS DATOS:
+1. Si un recurso aparece con faltante 0, ya está cubierto.
+2. Si un recurso aparece con sobrante positivo, sí puedes ofrecer 1 unidad.
+3. Puede haber sobrantes de recursos que no estén en el objetivo; también son negociables.
+
 TAREA:
 1. Envía un saludo breve.
-2. Menciona qué recurso necesitas más y qué recurso sobrante puedes ofrecer.
+2. Menciona qué recurso con faltante positivo necesitas más y qué recurso sobrante puedes ofrecer.
 3. Invita al otro agente a responder o, si conviene, lanza una oferta inicial simple con números dejando muy claro qué recursos quieres recibir.
 4. No reveles el objetivo completo.
 

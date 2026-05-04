@@ -193,22 +193,22 @@ def process_resources_information(butler_data):
     recursos = butler_data['Recursos']
     objetivo = butler_data['Objetivo']
     info_actual = {
-        "actual": recursos,
-        "objetivo": objetivo,
+        "actual": dict(recursos),
+        "objetivo": dict(objetivo),
         "faltante": {},
         "sobrante": {}
     }
 
-    for obj in objetivo:
-        info_actual["faltante"][obj] = objetivo[obj]
-        info_actual["sobrante"][obj] = 0
+    all_resources = set(objetivo) | set(recursos)
 
-    for obj in objetivo:
-        for rec in recursos:
-            if obj == rec:
-                info_actual["faltante"][obj] = objetivo[obj] - recursos[rec]
-                if info_actual["faltante"][obj] < 0:
-                    info_actual["sobrante"][obj] = abs(info_actual["faltante"][obj])
+    for resource_name in all_resources:
+        objective_amount = objetivo.get(resource_name, 0)
+        actual_amount = recursos.get(resource_name, 0)
+        difference = objective_amount - actual_amount
+
+        info_actual["faltante"][resource_name] = max(difference, 0)
+        info_actual["sobrante"][resource_name] = max(actual_amount - objective_amount, 0)
+
     return info_actual
 
 def get_alias_by_ip(ip):
