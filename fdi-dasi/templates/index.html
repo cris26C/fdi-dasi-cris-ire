@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>{{ title }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='/css/style.css') }}">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Header Principal -->
+        <header class="main-header">
+            <div class="agent-identity">
+                <div class="status-indicator online"></div>
+                <h1>{{ title }} <span class="owner-tag" id="current-agent-name">...</span></h1>
+            </div>
+            <p>Operador: <strong>{{ user_name }}</strong></p>
+        </header>
+
+        <!-- Métricas Rápidas -->
+        <section class="stats-grid">
+            <div class="stat-card">
+                <span class="stat-label">Agentes en Memoria</span>
+                <p id="total-agents">0</p>
+            </div>
+            <div class="stat-card">
+                <span class="stat-label">Mensajes Totales</span>
+                <p id="total-messages">0</p>
+            </div>
+            <div class="stat-card">
+                <span class="stat-label">Última Actividad</span>
+                <p id="last-update">--:--:--</p>
+            </div>
+        </section>
+
+        <!-- Cuerpo del Dashboard -->
+        <main class="dashboard-body">
+            <!-- Sidebar: Lista de Agentes con los que se ha hablado -->
+            <aside class="sidebar">
+                <div class="sidebar-header">
+                    <h3>Conversaciones</h3>
+                    <input type="text" id="agentFilter" placeholder="Buscar agente..." class="search-input">
+                </div>
+                <ul id="agent-list" class="agent-list">
+                    <!-- Se llena dinámicamente -->
+                    <li class="empty-state">No hay agentes</li>
+                </ul>
+            </aside>
+
+            <!-- Área de Chat/Mensajes -->
+            <section class="chat-area">
+                <div id="chat-header" class="chat-header">
+                    <h2 id="selected-agent-display">Selecciona un agente</h2>
+                </div>
+                <div id="message-container" class="message-container">
+                    <div class="welcome-screen">
+                        <p>Selecciona un agente de la lista para ver el historial de negociación.</p>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script>
+        let fullData = null;
+        let selectedAgent = null;
+
+        // Conexión dinámica al socket
+        const socket = new WebSocket(`ws://${window.location.host}/ws/stats`);
+
+        socket.onmessage = function(event) {
+            fullData = JSON.parse(event.data);
+            const memory = fullData.memory;
+            
+            // 1. Actualizar Identidad y Stats Globales
+            document.getElementById('current-agent-name').innerText = `[${fullData.agent_name}]`;
+            
+            const agentKeys = Object.keys(memory);
+            const totalMsgs = agentKeys.reduce((acc, key) => acc + memory[key].length, 0);
+            
+            document.getElementById('total-agents').innerText = agentKeys.length;
+            document.getElementById('total-messages').innerText = totalMsgs;
+            document.getElementById('last-update').innerText = new Date().toLocaleTimeString();
+
+            // 2. Actualizar Sidebar y Chat
+            updateSidebar(memory);
+            if (selectedAgent && memory[selectedAgent]) {
+                renderMessages(memory[selectedAgent]);
+            }
+        };
+
+        function updateSidebar(memory) {
+            const list = document.getElementById('agent-list');
+            const filter = document.getElementById('agentFilter').value.toLowerCase();
+            const agents = Object.keys(memory).filter(a => a.toLowerCase().includes(filter));
+            
+            list.innerHTML = "";
+            
+            if (agents.length === 0) {
+                list.innerHTML = '<li class="empty-state">Sin resultados</li>';
+                return;
+            }
+
+            agents.forEach(agent => {
+                const li = document.createElement('li');
+                li.className = `agent-item ${selectedAgent === agent ? 'active' : ''}`;
+                const lastMsg = memory[agent][memory[agent].length - 1];
+                
+                li.innerHTML = `
+                    <div class="agent-info">
+                        <span class="agent-name">${agent}</span>
+                        <span class="last-preview">${lastMsg ? lastMsg.content.substring(0, 30) + '...' : ''}</span>
+                    </div>
+                    <span class="msg-count">${memory[agent].length}</span>
+                `;
+                
+                li.onclick = () => {
+                    selectedAgent = agent;
+                    document.getElementById('selected-agent-display').innerText = `Historial con: ${agent}`;
+                    renderMessages(memory[agent]);
+                    updateSidebar(memory); // Para actualizar clase 'active'
+                };
+                list.appendChild(li);
+            });
+        }
+
+        function renderMessages(history) {
+            const container = document.getElementById('message-container');
+            container.innerHTML = "";
+            
+            history.forEach(msg => {
+                const div = document.createElement('div');
+                // Si el rol es 'user' asumimos que es el mensaje recibido del otro agente
+                div.className = `msg-bubble ${msg.role === 'user' ? 'received' : 'sent'}`;
+                div.innerHTML = `
+                    <div class="msg-content">
+                        <span class="msg-role">${msg.role.toUpperCase()}</span>
+                        <p>${msg.content}</p>
+                    </div>
+                `;
+                container.appendChild(div);
+            });
+            // Auto-scroll al final
+            //container.scrollTop = container.scrollHeight;
+        }
+
+        document.getElementById('agentFilter').oninput = () => {
+            if(fullData) updateSidebar(fullData.memory);
+        };
+
+        socket.onclose = () => console.log("Conexión cerrada");
+    </script>
+</body>
+</html>

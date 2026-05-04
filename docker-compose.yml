@@ -1,0 +1,59 @@
+services:
+  butler-server:
+    build: .
+    volumes:
+      - .:/app
+      - /app/.venv 
+    ports:
+      - "7719:7719"
+    command: uv run fdi-pln-butler server --host 0.0.0.0
+    # Al no tener "profiles", pertenece al grupo por defecto.
+
+  agent-one:
+    build: .
+    # AQUÍ AGREGAMOS LOS PERFILES
+    profiles:
+      - "gato"
+      - "agents"
+    volumes:
+      - .:/app
+      - /app/.venv
+    ports:
+      - "7720:7720"
+    environment:
+      - AGENT_NAME=GATO
+      - PORT=7720
+      - EXTERNAL_AGENT_PORT=7720
+      - OLLAMA_HOST=http://host.docker.internal:11434
+      - DEVELOPMENT_URL_BUTLER_SERVER=http://butler-server:7719
+      - MODE=development
+    command: uv run python fdi-dasi/main.py --host 0.0.0.0
+    depends_on:
+      - butler-server
+
+  agent-two:
+    build: .
+    # AQUÍ AGREGAMOS LOS PERFILES
+    profiles:
+      - "perro"
+      - "agents"
+    volumes:
+      - .:/app
+      - /app/.venv
+    ports:
+      - "7721:7720"
+    environment:
+      - AGENT_NAME=PERRO 
+      - PORT=7720
+      - EXTERNAL_AGENT_PORT=7720
+      - OLLAMA_HOST=http://host.docker.internal:11434
+      - DEVELOPMENT_URL_BUTLER_SERVER=http://butler-server:7719
+      - MODE=development
+    command: uv run python fdi-dasi/main.py --host 0.0.0.0
+    depends_on:
+      - butler-server
+
+networks:
+  default:
+    name: fdi_dasi_network
+    external: true

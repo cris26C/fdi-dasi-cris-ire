@@ -6,3 +6,5 @@ fdi-dasi/ollama-linux-amd64.tar.zst
 .env
 uv.lock
 .env*
+
+estado_butler.json

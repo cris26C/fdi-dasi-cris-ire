@@ -13,7 +13,10 @@ class Memory:
         )
 
     def get_history(self, agent_name: str) -> List[dict]:
-        return active_sessions.get(agent_name, [])
+        return list(active_sessions.get(agent_name, []))
+    
+    def get_all_history(self) -> Dict[str, List[dict]]:
+        return active_sessions
     
     def agent_name_in_memory(self, agent_name: str) -> bool:
         return agent_name in active_sessions

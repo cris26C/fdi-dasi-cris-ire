@@ -63,3 +63,18 @@ uv run --env-file .env fdi-dasi/main.py
     uv run fdi-pln-butler server
 ```
 
+docker compose up butler-server
+docker compose up butler-server --build
+
+docker compose --profile gato restart agent-one
+
+docker compose --profile perro up --no-deps agent-two
+
+docker compose --profile gato up --no-deps agent-one
+
+docker compose --profile agents down
+
+docker cmpose --profile agents up --build
+
+
+docker compose --profile agents up --build

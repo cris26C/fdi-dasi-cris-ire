@@ -194,6 +194,7 @@
 
 
 import json
+import ast
 from typing import Optional
 import requests
 from loguru import logger
@@ -203,31 +204,71 @@ from config import config
 
 user_connected = []
 TIMEOUT = 30.0
-async def create_agent_and_connect(agent, agent_name):
+async def create_agent_and_connect(agent, agent_name, greetings_enabled: bool = True):
     get_or_create_alias(agent_name)
+    
+    # Mantenemos un registro local de a quién ya saludamos en esta sesión
+    # para no depender únicamente de lo que devuelva la API
+    notified_aliases = set()
+
     try:
         while True: 
-            logger.info(f"Usuarios conectados: {user_connected}")
+            # 1. Obtenemos la lista actualizada desde el Butler
             negotiation_user_list = get_user_to_negotiate(agent_name)
+            
+            # 2. Filtramos solo los usuarios que no hemos saludado aún
+            # (Verificamos tanto el flag de la API como nuestro set local)
+            new_users = [
+                user for user in negotiation_user_list 
+                if not user.get('notified') and user['alias'] not in notified_aliases
+            ]
+
+            # 3. Si el agente reinició su negociación (alias fuera de _initiated_aliases),
+            #    quitarlo de notified_aliases para poder re-saludar en el próximo ciclo
+            if hasattr(agent, '_initiated_aliases'):
+                stale = [a for a in list(notified_aliases) if a not in agent._initiated_aliases]
+                for a in stale:
+                    notified_aliases.discard(a)
+                    # Resetear el flag en user_connected para que get_user_to_negotiate lo devuelva
+                    for u in user_connected:
+                        if u['alias'] == a:
+                            u['notified'] = False
+
+            if new_users:
+                logger.info(f"Nuevos agentes detectados: {[u['alias'] for u in new_users]}")
+                
+                if greetings_enabled:
+                    # Usamos asyncio.gather para ejecutar todos los saludos al mismo tiempo
+                    tasks = []
+                    for user in new_users:
+                        alias = user['alias']
+                        tasks.append(agent.send_greeting(alias))
+                        notified_aliases.add(alias) # Marcamos localmente de inmediato
+                    
+                    # Ejecutamos todas las tareas de saludo concurrentemente
+                    if tasks:
+                        await asyncio.gather(*tasks)
+                        logger.info(f"Saludos enviados a {len(tasks)} agentes.")
+                else:
+                    logger.info("Saludos desactivados. No se enviaron mensajes a los nuevos agentes.")
+                    for user in new_users:
+                        notified_aliases.add(user['alias'])
+
+            # 4. Espera controlada antes de la siguiente verificación
             await asyncio.sleep(5)
 
-            #TODO: Task group para enviar mensajes a multiples agentes a la vez
-            for user in negotiation_user_list:
-                # await orchestrator.add_worker_alias(user['alias'])
-                await agent.send_greeting(user['alias'])
-                user['notified'] = True
-                #await asyncio.sleep(5)
-            break
     except asyncio.CancelledError:
         logger.info("Agent connection task cancelled")
         raise
+    except Exception as e:
+        logger.error(f"Error en el bucle de negociación: {e}")
 
 def get_user_to_negotiate(agent_name):
     users = get_connected_users()
 
     for user in users:
         if user['alias'] == agent_name:
-               continue
+            continue
 
         existing_user = next((u for u in user_connected if u['alias'] == user['alias']), None)
         if existing_user is not None:
@@ -347,23 +388,33 @@ def get_alias_by_ip(ip):
             return user['alias']
     return None
 
-async def send_package(alias, package: str):
-    """"
-    El formato del paquete es un diccionario con los recursos que se quieren enviar, por ejemplo:
-    {
-    "madera": 4,
-    "oro": 2
-    }
+async def send_package(alias: str, package):
     """
+    El formato del paquete es un diccionario con los recursos que se quieren enviar, por ejemplo:
+    {"madera": 4, "oro": 2}
+    """
+    if isinstance(package, str):
+        try:
+            package = json.loads(package)
+        except (json.JSONDecodeError, ValueError):
+            try:
+                # Fallback: handle Python dict syntax with single quotes (e.g. "{'madera': 2}")
+                package = ast.literal_eval(package)
+            except (ValueError, SyntaxError) as e:
+                logger.error(f"send_package recibió un string inválido como package: {package!r} — error: {e}")
+                return f"Error: el paquete no es un formato válido: {package!r}"
+    if not isinstance(package, dict):
+        logger.error(f"send_package recibió un tipo inesperado: {type(package)} — valor: {package}")
+        return f"Error: el paquete debe ser un diccionario, recibido: {type(package)}"
+
     users = get_connected_users()
     for user in users:
         if user['alias'] == alias:
-            logger.info("ENVIANDO ALIAS: ", alias)
+            logger.info(f"Enviando paquete a {alias}: {package}")
             async with httpx.AsyncClient(timeout=TIMEOUT) as client:
-                package_dict = json.loads(package)  # Convertir el string JSON a un diccionario
-                logger.info("Package: ", package_dict)
-                response = await client.post(f'http://{config.URL_BUTLER_SERVER}:7720/paquete/{alias}', json=package_dict)
-                logger.info("Respuesta: ", response)
+                #Calling to BUTLER SERVER to send the package to the other agent
+                response = await client.post(f'{config.URL_BUTLER_SERVER}/paquete/{alias}', json=package)
+                logger.info(f"Respuesta paquete: {response.status_code}")
                 return response.json()
     raise ValueError(f"Alias '{alias}' no encontrado entre los usuarios conectados.")
 
@@ -375,16 +426,35 @@ async def send_message_to_alias(alias: str, mensaje: str):
     logger.info(f"Preparando para enviar mensaje al alias '{alias}': {mensaje}")
     ip = get_my_ip_by_alias(alias)
 
-    route = f'http://{ip}:7720/buzon'
+    if alias == 'perro':
+        logger.warning("¡CUIDADO! Estás a punto de enviar un mensaje a 'perro', que es un alias de prueba. Asegúrate de que esto es lo que quieres hacer.")
+        ip = 'agent-two'
+    elif alias == 'gato':
+        logger.warning("¡CUIDADO! Estás a punto de enviar un mensaje a 'gato', que es un alias de prueba. Asegúrate de que esto es lo que quieres hacer.")
+        ip = 'agent-one'
+
+    route = f'http://{ip}:{config.EXTERNAL_AGENT_PORT}/buzon'
     logger.info(f"Enviando mensaje a {route}: {mensaje}")
 
     try:
         async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+            logger.debug(f"Conectando a {route}...")
             response = await client.post(route, json={
                 "msg": mensaje
             })
+            logger.debug(f"Respuesta HTTP status: {response.status_code}")
             response.raise_for_status() # Verifica que el otro servidor respondió 200 OK
+        logger.info(f"Mensaje enviado exitosamente a {alias}")
         return response.json()
+    except httpx.ConnectError as e:
+        logger.error(f"Error de conexión enviando mensaje a {route}: {str(e)} - Verifica que el servicio {ip} está corriendo en puerto {config.EXTERNAL_AGENT_PORT}")
+        return f"Error de conexión: No se puede contactar a {ip}:{config.EXTERNAL_AGENT_PORT}"
+    except httpx.TimeoutException as e:
+        logger.error(f"Timeout enviando mensaje a {route}: {str(e)} - El servicio tardó más de {TIMEOUT}s en responder")
+        return f"Error de timeout: {ip} no respondió en {TIMEOUT}s"
+    except httpx.HTTPStatusError as e:
+        logger.error(f"Error HTTP {e.response.status_code} enviando mensaje a {route}: {str(e)}")
+        return f"Error HTTP: El servidor respondió con status {e.response.status_code}"
     except Exception as e:
-        logger.error(f"Error enviando mensaje a {route}: {e}")
-        return f"Error: No se pudo contactar al agente en {route}"
+        logger.error(f"Error inesperado enviando mensaje a {route}: {type(e).__name__}: {str(e)}")
+        return f"Error: No se pudo contactar al agente en {route} - {str(e)}"
