@@ -125,6 +125,16 @@ def get_ollama_client():
         _ollama_client = AsyncClient(host=config.OLLAMA_HOST)
     return _ollama_client
 
+
+def has_tool_calls(response) -> bool:
+    if response is None:
+        return False
+
+    try:
+        return bool(response.message.tool_calls)
+    except AttributeError:
+        return bool(response.get("message", {}).get("tool_calls", []))
+
 class Agent:
     def __init__(self, name: str):
         self.name = name
@@ -193,6 +203,7 @@ class Agent:
         messages = list(self.memory.get_history(alias)[-MAX_MSGS:])
         messages.insert(0, {"role": "system", "content": agent_prompt})
         response = await self.make_response(messages, get_tools(alias))
+        response = await self.ensure_tool_response(messages, response, alias)
         if response is None:
             logger.error(f"make_response devolvió None para el alias '{alias}', abortando turno.")
             return None
@@ -232,6 +243,7 @@ class Agent:
                     {"role": "system", "content": alias_prompt},
                     {"role": "user", "content": f"Por favor, saluda al agente {alias} utilizando la herramienta correspondiente."}]
         response = await self.make_response(messages, get_tools(alias))
+        response = await self.ensure_tool_response(messages, response, alias)
         if response is None:
             logger.error(f"make_response devolvió None en send_greeting para '{alias}', abortando.")
             return None
@@ -255,6 +267,7 @@ class Agent:
             {"role": "user", "content": "Envía tu mensaje de cierre al otro agente."}
         ]
         response = await self.make_response(messages, get_tools(alias))
+        response = await self.ensure_tool_response(messages, response, alias)
         if response is None:
             logger.error(f"make_response devolvió None en send_farewell para '{alias}'.")
         else:
@@ -276,6 +289,31 @@ class Agent:
         logger.info(f"Reiniciando ciclo de negociación con '{alias}'.")
         self._initiated_aliases.discard(alias)
         #active_sessions.pop(alias, None)
+
+    async def ensure_tool_response(self, messages: list, response, alias: str):
+        if response is None or has_tool_calls(response):
+            return response
+
+        content = getattr(response.message, 'content', None) or ''
+        logger.warning(
+            f"El modelo respondió sin tool-call para '{alias}'. Reintentando con instrucción estricta. Content: {content!r}"
+        )
+
+        repair_messages = list(messages)
+        repair_messages.append({
+            "role": "system",
+            "content": (
+                "Tu respuesta anterior fue incorrecta porque escribiste contenido en lugar de usar una herramienta. "
+                "Responde ahora SOLO con una tool-call real. "
+                "No escribas texto, no escribas JSON, no describas parámetros."
+            ),
+        })
+        repair_messages.append({
+            "role": "user",
+            "content": "Corrige tu respuesta anterior usando exactamente una herramienta válida.",
+        })
+        repaired_response = await self.make_response(repair_messages, get_tools(alias))
+        return repaired_response
 
     def sync_memory(self, alias_name: str, tool_executed: list, content: Optional[str] = None):
         # {"name": name, "arguments": arguments, "response": response}

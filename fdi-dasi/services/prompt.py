@@ -49,6 +49,13 @@ REGLAS DURAS:
 5. NUNCA uses más de una herramienta por turno.
 6. Si aceptas un trato, no escribas texto adicional: usa send_package.
 
+USO OBLIGATORIO DE HERRAMIENTAS:
+1. Tu salida correcta es una llamada real a herramienta, no una explicación de la llamada.
+2. NUNCA escribas en el content texto con estructuras como "name", "arguments", "alias", "package" o JSON simulando una tool-call.
+3. Si vas a hablar, debes usar la herramienta send_message_to_alias.
+4. Si vas a aceptar y enviar recursos, debes usar la herramienta send_package.
+5. Si tu respuesta final no contiene una tool-call real, tu respuesta es incorrecta.
+
 SEÑALES DE ACCIÓN:
 1. Si el otro hizo una oferta concreta y favorable, usa send_package.
 2. Si el otro hizo una oferta concreta pero desfavorable, usa send_message_to_alias con una contraoferta que aumente lo que tú recibes.
@@ -64,27 +71,14 @@ FORMATO DEL MENSAJE CUANDO NEGOCIAS:
 - No pidas recursos cuyo faltante sea 0 salvo que sean moneda de ajuste claramente útil.
 - Mantén un tono breve y profesional.
 
-=== EJEMPLOS DE LLAMADAS CORRECTAS ===
+MENSAJES QUE DEBES ENVIAR SI USAS send_message_to_alias:
+- "Puedo darte 1 de madera, pero necesito que me envíes 2 de piedra a cambio."
+- "Necesito hierro. Puedo ofrecer 1 de oro, que me sobra."
 
-Ejemplo A — contraoferta o propuesta:
-{{
-  "name": "send_message_to_alias",
-  "arguments": {{
-    "alias": "{agent_alias}",
-    "mensaje": "Puedo darte 1 de madera, pero necesito que me envíes 2 de piedra a cambio."
-  }}
-}}
+PAQUETE QUE DEBES ENVIAR SI USAS send_package:
+- Envía un objeto con los recursos acordados, por ejemplo una sola unidad del recurso que entregarás.
 
-Ejemplo B — aceptación con envío de recursos:
-{{
-  "name": "send_package",
-  "arguments": {{
-    "alias": "{agent_alias}",
-    "package": {{"madera": 1}}
-  }}
-}}
-
-IMPORTANTE: El campo "alias" SIEMPRE es "{agent_alias}". El campo "package" es un objeto JSON con claves de recurso y valores enteros. Solo puedes entregar recursos con sobrante positivo y, cuando la propuesta salga de ti, entrega solo 1 unidad. Prioriza siempre recibir recursos valiosos para tu objetivo.
+IMPORTANTE: El campo "alias" SIEMPRE es "{agent_alias}". El campo "package" es un objeto JSON con claves de recurso y valores enteros, pero ese objeto debe ir en la herramienta send_package, no escrito como texto en content. Solo puedes entregar recursos con sobrante positivo y, cuando la propuesta salga de ti, entrega solo 1 unidad. Prioriza siempre recibir recursos valiosos para tu objetivo.
 """
 
 INITIAL_GREETING_SYSTEM_PROMPT = """
@@ -106,17 +100,12 @@ TAREA:
 2. Menciona qué recurso con faltante positivo necesitas más y qué recurso sobrante puedes ofrecer.
 3. Invita al otro agente a responder o, si conviene, lanza una oferta inicial simple con números dejando muy claro qué recursos quieres recibir.
 4. No reveles el objetivo completo.
+5. Debes usar una tool-call real a send_message_to_alias. No escribas JSON ni describas parámetros en el content.
 
-DEBES usar send_message_to_alias. Ejemplo de llamada correcta:
-{{
-  "name": "send_message_to_alias",
-  "arguments": {{
-    "alias": "{agent_alias}",
-    "mensaje": "Hola. Ahora mismo necesito piedra y puedo ofrecer 1 de madera, que me sobra. Si te interesa, envíame 2 de piedra y yo te doy 1 de madera."
-  }}
-}}
+MENSAJE A ENVIAR SI USAS send_message_to_alias:
+- "Hola. Ahora mismo necesito piedra y puedo ofrecer 1 de madera, que me sobra. Si te interesa, envíame 2 de piedra y yo te doy 1 de madera."
 
-IMPORTANTE: "alias" SIEMPRE es "{agent_alias}". NUNCA uses send_package en este turno. Evita saludos vacíos sin dirección negociadora, ofrece solo 1 unidad de algo que sobre y deja claro qué quieres que te envíen.
+IMPORTANTE: "alias" SIEMPRE es "{agent_alias}". NUNCA uses send_package en este turno. Evita saludos vacíos sin dirección negociadora, ofrece solo 1 unidad de algo que sobre y deja claro qué quieres que te envíen. No escribas la llamada a herramienta como texto: ejecútala.
 """
 
 AGREEMENT_SYSTEM_PROMPT = """
@@ -135,7 +124,7 @@ DEBES usar send_message_to_alias. Ejemplo de llamada correcta:
   }}
 }}
 
-IMPORTANTE: "alias" SIEMPRE es "{agent_alias}". NUNCA uses send_package. NO negociés más.
+IMPORTANTE: "alias" SIEMPRE es "{agent_alias}". NUNCA uses send_package. NO negociés más. No escribas JSON ni parámetros en el content.
 """
 
 MAX_MSGS = 15
