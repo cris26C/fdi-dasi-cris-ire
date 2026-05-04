@@ -179,8 +179,16 @@ class Agent:
         resources = get_actual_resources_and_objectives()
         actual_resources = resources['actual']
         objective = resources['objetivo']
+        missing_resources = resources['faltante']
+        surplus_resources = resources['sobrante']
 
-        agent_prompt = NEGOTIATOR_SYSTEM_PROMPT.format(agent_alias=alias, resources=actual_resources, objective=objective)
+        agent_prompt = NEGOTIATOR_SYSTEM_PROMPT.format(
+            agent_alias=alias,
+            resources=actual_resources,
+            objective=objective,
+            missing_resources=missing_resources,
+            surplus_resources=surplus_resources,
+        )
         # Copy history to avoid mutating the stored list with the system prompt insert
         messages = list(self.memory.get_history(alias)[-MAX_MSGS:])
         messages.insert(0, {"role": "system", "content": agent_prompt})
@@ -210,8 +218,16 @@ class Agent:
         resources = get_actual_resources_and_objectives()
         actual_resources = resources['actual']
         objective = resources['objetivo']
+        missing_resources = resources['faltante']
+        surplus_resources = resources['sobrante']
 
-        alias_prompt = INITIAL_GREETING_SYSTEM_PROMPT.format(agent_alias=alias, resources=actual_resources, objective=objective)
+        alias_prompt = INITIAL_GREETING_SYSTEM_PROMPT.format(
+            agent_alias=alias,
+            resources=actual_resources,
+            objective=objective,
+            missing_resources=missing_resources,
+            surplus_resources=surplus_resources,
+        )
         messages = [
                     {"role": "system", "content": alias_prompt},
                     {"role": "user", "content": f"Por favor, saluda al agente {alias} utilizando la herramienta correspondiente."}]
