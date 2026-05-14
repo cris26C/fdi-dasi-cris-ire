@@ -184,7 +184,6 @@ def get_actual_resources_and_objectives():
         y calcula los recursos faltantes y sobrantes"""
     response = requests.get(f'{config.URL_BUTLER_SERVER}/info')
     response.raise_for_status()
-    logger.info("Recursos y objetivos obtenidos exitosamente.")
     data = response.json()
     return process_resources_information(data)
 
@@ -219,15 +218,13 @@ def get_alias_by_ip(ip):
 
 async def send_package(alias: str, package):
     """
-    El formato del paquete es un diccionario con los recursos que se quieren enviar, por ejemplo:
-    {"madera": 4, "oro": 2}
+    El formato del paquete es un diccionario con los recursos que se quieren enviar
     """
     if isinstance(package, str):
         try:
             package = json.loads(package)
         except (json.JSONDecodeError, ValueError):
             try:
-                # Fallback: handle Python dict syntax with single quotes (e.g. "{'madera': 2}")
                 package = ast.literal_eval(package)
             except (ValueError, SyntaxError) as e:
                 logger.error(f"send_package recibió un string inválido como package: {package!r} — error: {e}")

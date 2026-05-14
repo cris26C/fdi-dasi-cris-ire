@@ -82,7 +82,7 @@
             document.getElementById('total-agents').innerText = agentKeys.length;
             document.getElementById('total-messages').innerText = totalMsgs;
             document.getElementById('last-update').innerText = new Date().toLocaleTimeString();
-            document.getElementById("resources").innerText = "FALTANTE: " + JSON.stringify(fullData["resources"]["faltante"]) + "OBJETIVO: " + JSON.stringify(fullData["resources"]["objetivo"]);
+            document.getElementById("resources").innerText = "FALTANTE: " + JSON.stringify(fullData["resources"]["faltante"]) + "OBJETIVO: " + JSON.stringify(fullData["resources"]["objetivo"]) + "ACTUAL: " + JSON.stringify(fullData["resources"]["actual"]);
             // 2. Actualizar Sidebar y Chat
             updateSidebar(memory);
             if (selectedAgent && memory[selectedAgent]) {

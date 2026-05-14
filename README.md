@@ -4,7 +4,6 @@
 
 **Autor(es):** Francisco Mollá Astrar, Jara Blasco Arroyo, Iremar Luhetsy Rivas Álvarez, Christian Iván Cola Pilicita, Lei Siting, Miguel Ángel Osuna Galindo
 
-En el archivo **`ollama_service.py`** se realiza toda la gestión de mensajes con Ollama, así como la obtención de la respuesta.
 
 En **`butler_service.py`** se conecta con el resto de agentes y se envían los mensajes, además de recibir los recursos y la información de Butler.
 

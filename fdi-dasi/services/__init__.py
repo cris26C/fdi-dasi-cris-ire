@@ -9,6 +9,5 @@ from .butler_service import (
     send_message_by_alias
 )
 
-from .ollama_service import Orchestrator
 from .agent import Agent
 from .memory import Memory

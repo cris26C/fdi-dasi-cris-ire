@@ -7,8 +7,8 @@ class Config(BaseSettings):
     PORT: int = 7720
     MODE: str = "development" # change to "production" to test the switch
     
-    DEVELOPMENT_URL_BUTLER_SERVER: str = "http://127.0.0.1:7719"
-    PRODUCTION_URL_BUTLER_SERVER: str = "http://147.96.80.104:7719" 
+    DEVELOPMENT_URL_BUTLER_SERVER: str = "http://172.16.84.12:7719"
+    PRODUCTION_URL_BUTLER_SERVER: str = "http://172.16.84.12:7719" 
     
     URL_BUTLER_SERVER: str = "http://localhost:11434" # This will be overridden by the model_validator
     EXTERNAL_AGENT_PORT: int = 7720
