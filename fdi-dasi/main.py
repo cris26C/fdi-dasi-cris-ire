@@ -62,7 +62,7 @@ async def receive_message(
         agent: Agent = app.state.agent
         asyncio.create_task(agent.response(alias, msg))
         logger.info(f">> {client_host} dice: {msg}")
-        return True
+        return "Mensaje recibido, procesando..."
     except Exception as e:
         import traceback
         traceback.print_exc()

@@ -59,7 +59,7 @@ async def create_agent_and_connect(agent, agent_name, greetings_enabled: bool = 
                 for a in stale:
                     notified_aliases.discard(a)
                     # Resetear el flag en user_connected para que get_user_to_negotiate lo devuelva
-                    for u in user_connected:
+                    for u in user_connected: # Asegúrate de que user_connected esté accesible en este scope
                         if u['alias'] == a:
                             u['notified'] = False
 
@@ -71,17 +71,23 @@ async def create_agent_and_connect(agent, agent_name, greetings_enabled: bool = 
                     tasks = []
                     for user in new_users:
                         alias = user['alias']
-                        tasks.append(agent.send_greeting(alias))
+                        # NUEVO FLUJO: Llamamos directamente a response() sin mensaje.
+                        # La clase Agent se encargará de detectar que es el primer contacto y saludar.
+                        tasks.append(agent.response(alias))
                         notified_aliases.add(alias) # Marcamos localmente de inmediato
                     
                     # Ejecutamos todas las tareas de saludo concurrentemente
                     if tasks:
                         await asyncio.gather(*tasks)
-                        logger.info(f"Saludos enviados a {len(tasks)} agentes.")
+                        logger.info(f"Saludos iniciales procesados para {len(tasks)} agentes.")
                 else:
                     logger.info("Saludos desactivados. No se enviaron mensajes a los nuevos agentes.")
                     for user in new_users:
-                        notified_aliases.add(user['alias'])
+                        alias = user['alias']
+                        notified_aliases.add(alias)
+                        # Si desactivamos los saludos, forzamos a que el agente lo marque
+                        # como iniciado para que no lance el saludo retrasado en el primer mensaje que reciba.
+                        agent._initiated_aliases.add(alias)
 
             # 4. Espera controlada antes de la siguiente verificación
             await asyncio.sleep(5)
