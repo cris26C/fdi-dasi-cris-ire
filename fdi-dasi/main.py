@@ -8,7 +8,7 @@ from schemas.agent_message import AgentMessage
 import asyncio
 from contextlib import asynccontextmanager
 from loguru import logger
-from config import config
+from core.config import config
 from services import (create_agent_and_connect, 
                       get_alias_by_ip,
                       get_actual_resources_and_objectives,
