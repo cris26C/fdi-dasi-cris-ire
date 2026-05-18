@@ -8,9 +8,9 @@ from datetime import datetime
 from loguru import logger
 from ollama import AsyncClient
 
-from config import config
+from core.config import config
 from services.memory import Memory, active_sessions
-from services.prompt import GREETING_PROMPT, NEGOTIATOR_PROMPT, get_tools
+from core.prompt import GREETING_PROMPT, NEGOTIATOR_PROMPT, get_tools
 from services.butler_service import (
     MAX_NEGOTIATION_TURNS, send_message_to_alias, send_package,
     get_actual_resources_and_objectives, _sanitize_mensaje,
@@ -19,7 +19,6 @@ from services.butler_service import (
 
 FAREWELL_MARKER = '[[CICLO_CERRADO]]'
 _ollama_client: Optional[AsyncClient] = None
-
 
 def get_ollama_client() -> AsyncClient:
     """Get or create Ollama AsyncClient. Recreates on connection errors."""

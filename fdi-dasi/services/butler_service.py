@@ -6,7 +6,7 @@ import requests
 from loguru import logger
 import asyncio
 import httpx
-from config import config
+from core.config import config
 import unicodedata
 import re
 

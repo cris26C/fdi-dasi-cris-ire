@@ -4,18 +4,16 @@ from pathlib import Path
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, HTTPException, Request
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
-from schemas.agent_message import AgentMessage, SendMessage
+from schemas.agent_message import AgentMessage
 import asyncio
 from contextlib import asynccontextmanager
 from loguru import logger
 from config import config
 from services import (create_agent_and_connect, 
                       get_alias_by_ip,
-                      get_connected_users,
                       get_actual_resources_and_objectives,
                       Agent)
 import uvicorn 
-import random
 
 
 
