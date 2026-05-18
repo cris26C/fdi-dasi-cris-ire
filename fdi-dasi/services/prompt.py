@@ -3,7 +3,7 @@
 El LLM decide qué herramienta llamar (send_package o send_message_to_alias)
 basándose en sus recursos y en el mensaje del partner. Los ejemplos en el
 prompt usan los nombres reales de los recursos para que el modelo pueda
-copiar el patrón.
+ver el patrón.
 """
 
 
@@ -131,6 +131,3 @@ def get_tools(alias: str, surplus_names: list = None, missing_names: list = None
             }
         }
     ]
-
-
-TOOLS = get_tools("AGENTE")
