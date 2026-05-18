@@ -85,7 +85,9 @@ El siguiente diagrama muestra la interacción completa entre todos los component
 | Componente | Responsabilidad |
 |---|---|
 | `ButlerService` | Cliente REST al servidor Butler; gestión de alias, recursos e intercambio de paquetes |
-| `Agent` | Lógica de negociación; llama al LLM, valida respuestas, gestiona turnos y ciclos |
+| `Agent` | Coordinación de estado, turnos, locks y ciclos de negociación; llama a `LLMClient` |
+| `LLMClient` | Conexión a Ollama con reintentos y backoff exponencial; aislado de la lógica de negociación |
+| `negotiation.py` | Funciones puras sin estado: detección de ofertas, validación de mensajes, construcción de prompts |
 | `Memory` | Almacén dual: sesión activa (contexto LLM) + archivo histórico (dashboard) |
 | `FastAPI app` | Expone `/buzon` para recibir mensajes P2P y `/ws/stats` para el dashboard |
 | `prompt.py` | Plantillas de sistema (`GREETING_PROMPT`, `NEGOTIATOR_PROMPT`) y esquema de herramientas |
