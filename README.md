@@ -101,31 +101,38 @@ fdi-dasi-cris-ire/
 ├── docker-compose.yml          # Orquestación: Butler + agente-uno + agente-dos
 ├── Dockerfile                  # Imagen base Python 3.12 + uv
 ├── pyproject.toml              # Metadatos y dependencias del proyecto
+├── pyrightconfig.json          # Configuración de tipos para el IDE (extraPaths: fdi-dasi)
 ├── .env                        # Variables de entorno (no incluido en git)
 │
-└── fdi-dasi/
-    ├── main.py                 # Punto de entrada FastAPI (lifespan, rutas)
-    │
-    ├── core/
-    │   ├── config.py           # Configuración vía Pydantic Settings + .env
-    │   └── prompt.py           # Prompts del sistema y definición de herramientas LLM
-    │
-    ├── services/
-    │   ├── agent.py            # Clase Agent: negociación, LLM, reintentos, memoria
-    │   ├── butler_service.py   # Clase ButlerService: REST client y lógica de recursos
-    │   └── memory.py           # Clase Memory: historial activo y archivo histórico
-    │
-    ├── schemas/
-    │   └── agent_message.py    # Modelo Pydantic para mensajes entrantes en /buzon
-    │
-    ├── templates/
-    │   └── index.html          # Dashboard web (Jinja2 + WebSocket)
-    │
-    ├── static/css/
-    │   └── style.css           # Estilos del dashboard
-    │
-    └── packages/
-        └── fdi_pln_butler-*.whl  # Paquete wheel del framework Butler
+├── fdi-dasi/
+│   ├── main.py                 # Punto de entrada FastAPI (lifespan, rutas)
+│   │
+│   ├── core/
+│   │   ├── config.py           # Configuración vía Pydantic Settings + .env
+│   │   ├── prompt.py           # Prompts del sistema y definición de herramientas LLM
+│   │   └── negotiation.py      # Funciones puras: detección de ofertas, validación, builders de prompt
+│   │
+│   ├── services/
+│   │   ├── agent.py            # Clase Agent: coordinación de estado, turnos y ciclos
+│   │   ├── llm_client.py       # Clase LLMClient: conexión Ollama con reintentos y backoff
+│   │   ├── butler_service.py   # Clase ButlerService: REST client y lógica de recursos
+│   │   └── memory.py           # Clase Memory: historial activo y archivo histórico
+│   │
+│   ├── schemas/
+│   │   └── agent_message.py    # Modelo Pydantic para mensajes entrantes en /buzon
+│   │
+│   ├── templates/
+│   │   └── index.html          # Dashboard web (Jinja2 + WebSocket)
+│   │
+│   └── static/css/
+│       └── style.css           # Estilos del dashboard
+│
+└── tests/
+    ├── conftest.py                  # Fixtures compartidos y helpers de respuesta LLM
+    ├── test_agent_negotiation.py    # Lógica del Agent (LLM y Butler mockeados)
+    ├── test_butler_service.py       # ButlerService (HTTP mockeado)
+    ├── test_api_endpoints.py        # Endpoints FastAPI
+    └── test_ollama_integration.py   # Integración real con Ollama (@ollama)
 ```
 
 ---
@@ -221,7 +228,6 @@ docker compose --profile agents down
 
 ```bash
 uv sync
-uv pip install fdi-dasi/packages/fdi_pln_butler-26.2.23-py3-none-any.whl
 ```
 
 ### Levantar el servidor Butler
@@ -263,14 +269,18 @@ Inicio
   ├─ Recepción de mensaje (POST /buzon)
   │     └─ _negotiate()
   │           │
-  │           ├─ Analizar mensaje: ¿oferta cerrable?
-  │           │     "te doy X por Y" → X antes de "por" = oferta recibida
-  │           │                      → Y después de "por" = recurso pedido de nosotros
+  │           ├─ Detectar oferta incompatible (has_offer_signal + mentions_any)
+  │           │     2 turnos incompatibles consecutivos → despedida automática
+  │           │
+  │           ├─ Analizar mensaje: ¿oferta cerrable? (detect_close_resource)
+  │           │     "acepto"/"trato" → cierre directo
+  │           │     palabras después de "por" en sobrantes → cierre
+  │           │     palabras entre señal de oferta y "por" en faltantes → cierre
   │           │
   │           ├─ Si se puede cerrar → tools = [send_package solamente]
   │           │     user_prompt: "CIERRA EL TRATO. Llama send_package(...)"
   │           │
-  │           └─ Si no → tools = [send_message_to_alias, send_package]
+  │           └─ Si no → tools = [send_message_to_alias solamente]
   │                 user_prompt: "Propón: Te doy 1 X por 1 Y, ¿aceptas?"
   │
   ├─ Llamada al LLM con hasta 3 reintentos progresivos
@@ -283,14 +293,24 @@ Inicio
         └─ Límite de turnos: despedida → reset
 ```
 
-### Detección de oferta cerrable
+### Detección de oferta cerrable (`detect_close_resource`)
 
-El agente analiza el mensaje entrante con expresiones regulares:
+El agente analiza cada mensaje entrante con tres comprobaciones en orden:
 
-- **`Y` (después de "por")** — lo que el otro agente pide *de nosotros*: si está en nuestros sobrantes → cerrar enviando `Y`.
-- **`X` (después de "te doy")** — lo que el otro agente ofrece *a nosotros*: si está en nuestros faltantes → cerrar enviando nuestro primer sobrante.
+1. **Aceptación directa** — si el mensaje contiene "acepto", "trato" o "de acuerdo" sin negación previa → cerrar enviando el primer sobrante.
+2. **Recurso pedido** (`after_por`) — palabras después de "por": si alguna coincide con nuestros sobrantes → cerrar enviando ese recurso.
+3. **Recurso ofrecido** (`after_offer`) — palabras entre la señal de oferta ("te doy", "ofrezco", "cambio") y "por": si alguna coincide con nuestros faltantes → cerrar enviando el primer sobrante.
 
-Cuando se detecta cierre, `send_message_to_alias` se elimina del listado de herramientas disponibles para el LLM, obligándolo a llamar únicamente a `send_package`.
+### Restricción simétrica de herramientas
+
+| Situación | Herramientas disponibles para el LLM |
+|---|---|
+| Oferta cerrable detectada | Solo `send_package` — el LLM no puede escapar a otra propuesta |
+| Sin oferta cerrable | Solo `send_message_to_alias` — el LLM no puede cerrar prematuramente |
+
+### Detección de bucle incompatible
+
+Si el agente recibe **2 mensajes consecutivos** con señal de oferta que no mencionan ninguno de sus faltantes (recursos incompatibles), cierra el ciclo con despedida sin llamar al LLM. El contador se reinicia cuando llega una oferta compatible.
 
 ### Herramientas disponibles para el LLM
 
@@ -395,9 +415,9 @@ tests/
 
 | Archivo | Tests | Qué cubre |
 |---|---|---|
-| `test_agent_negotiation.py` | 18 | Detección de oferta cerrable, envío de paquete, propuestas, reintentos ×3, límite de turnos, saludo |
+| `test_agent_negotiation.py` | 25 | Detección de oferta cerrable, envío de paquete, propuestas, reintentos ×3, límite de turnos, bucle incompatible, saludo |
 | `test_butler_service.py` | 16 | Parseo de recursos, resolución de alias por IP, `send_message_to_alias`, `send_package`, sanitización de mensajes |
-| `test_api_endpoints.py` | 8 | `GET /`, `POST /buzon`, `WebSocket /ws/stats` |
+| `test_api_endpoints.py` | 8 | `GET /`, `POST /buzon` (202 Accepted), `WebSocket /ws/stats` |
 | `test_ollama_integration.py` | 11 | Conectividad Ollama, `_call_llm`, flujo completo de negociación, resumen de contexto |
 
 ### Dependencias de desarrollo
