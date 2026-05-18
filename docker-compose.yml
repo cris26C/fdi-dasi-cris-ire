@@ -57,29 +57,6 @@ services:
     command: uv run python fdi-dasi/main.py --host 0.0.0.0
     depends_on:
       - butler-server
-    
-  # agent-three:
-  #   build: .
-  #   # AQUÍ AGREGAMOS LOS PERFILES
-  #   profiles:
-  #     - "oso"
-  #     - "agents"
-  #   volumes:
-  #     - .:/app
-  #     - /app/.venv
-  #   ports:
-  #     - "7723:7720"
-  #   environment:
-  #     - AGENT_NAME=OSO
-  #     - PORT=7720
-  #     - EXTERNAL_AGENT_HOST=agent-three
-  #     - EXTERNAL_AGENT_PORT=7720
-  #     - OLLAMA_HOST=http://172.17.0.1:11434
-  #     - DEVELOPMENT_URL_BUTLER_SERVER=http://butler-server:7719
-  #     - MODE=development
-  #   command: uv run python fdi-dasi/main.py --host 0.0.0.0
-  #   depends_on:
-  #     - butler-server
 networks:
   default:
     name: fdi_dasi_network
