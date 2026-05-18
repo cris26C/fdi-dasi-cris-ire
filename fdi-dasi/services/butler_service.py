@@ -260,7 +260,6 @@ class ButlerService:
         response = requests.get(f'{config.URL_BUTLER_SERVER}/info')
         response.raise_for_status()
         data = response.json()
-        logger.debug(f"Info actualizada: {data}")
         self._info_cache = ButlerService.process_resources_information(data)
         self._info_cache_ts = now
         return self._info_cache

@@ -159,7 +159,6 @@ class Agent:
             logger.warning(f"[{self.name}] Limite de turnos con '{alias}'.")
             await self._send_farewell(alias, None)
             return
-        logger.info(f"MEMORY DE {alias} en {self.name}: {self.memory.get_history(alias)}")
         logger.info(f"[{self.name} ← {alias}] NEGOCIANDO {turns}: {message}")
         await self._negotiate(alias, message, turns)
 

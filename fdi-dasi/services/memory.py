@@ -4,8 +4,7 @@ from typing import List, Dict
 # Cleared on _reset_negotiation so each new negotiation starts fresh from the LLM's POV.
 active_sessions: Dict[str, List[dict]] = {}
 
-# Archive: append-only log of EVERY message ever exchanged, per alias.
-# Never cleared. Used by the dashboard so the operator sees the full history.
+#Full archive of all messages
 archive_sessions: Dict[str, List[dict]] = {}
 
 
