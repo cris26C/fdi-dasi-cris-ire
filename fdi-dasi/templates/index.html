@@ -27,6 +27,39 @@
         .val-danger  { color: #f87171; font-weight: 600; }
         .val-success { color: #34d399; font-weight: 600; }
 
+        /* ── Panel de errores ── */
+        .errors-section { margin: 0 0 16px 0; }
+        .errors-header {
+            display: flex; align-items: center; gap: 10px;
+            padding: 10px 14px; cursor: pointer; user-select: none;
+            background: #1a1f2e; border-radius: 6px; border-left: 4px solid #475569;
+            transition: background 0.15s;
+        }
+        .errors-header:hover { background: #1e253a; }
+        .errors-header.has-errors { border-left-color: #dc2626; background: #2a1818; }
+        .errors-header.has-errors:hover { background: #341d1d; }
+        .errors-title { font-weight: 600; color: #e2e8f0; font-size: 0.9rem; flex-grow: 1; }
+        .errors-badge {
+            padding: 2px 10px; border-radius: 10px; font-size: 0.72rem; font-weight: 700;
+            background: #475569; color: #cbd5e1;
+        }
+        .errors-badge.alert { background: #dc2626; color: #fff; }
+        .errors-toggle { color: #94a3b8; font-size: 0.85rem; }
+        .errors-list { display: none; padding: 8px 0 0 0; max-height: 280px; overflow-y: auto; }
+        .errors-list.open { display: block; }
+        .err-item {
+            display: grid; grid-template-columns: 75px 110px 1fr; gap: 10px;
+            padding: 8px 14px; border-bottom: 1px solid #1e2532; font-size: 0.78rem;
+            align-items: start;
+        }
+        .err-item:last-child { border-bottom: none; }
+        .err-ts { color: #64748b; font-family: 'Courier New', monospace; }
+        .err-cat { color: #f59e0b; font-weight: 600; }
+        .err-msg { color: #e2e8f0; word-break: break-word; }
+        .err-alias { display: inline-block; padding: 1px 6px; margin-right: 6px;
+            background: #1e3a5f55; color: #93c5fd; border-radius: 3px; font-size: 0.68rem; font-weight: 600; }
+        .errors-empty { padding: 14px; color: #64748b; font-style: italic; font-size: 0.82rem; text-align: center; }
+
         /* ── Tab bar (new, not in style.css) ── */
         .chat-tabs { display: flex; gap: 4px; padding: 8px 16px; background: #161d2d; border-bottom: 1px solid #2d3748; flex-shrink: 0; }
         .tab-btn { padding: 5px 14px; border-radius: 4px; border: 1px solid #2d3748; background: transparent; color: #94a3b8; cursor: pointer; font-size: 0.8rem; font-family: inherit; transition: all 0.15s; }
@@ -130,6 +163,29 @@
         .prompt-toggle { color: #64748b; font-size: 0.8rem; }
         .prompt-body { display: none; padding: 12px; background: #0d1117; font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; color: #c9d1d9; white-space: pre-wrap; line-height: 1.6; border-top: 1px solid #2d3748; }
         .prompt-body.open { display: block; }
+
+        /* ── Trace de llamada al LLM ── */
+        .trace-section { margin: 10px 0; }
+        .trace-section h4 {
+            margin: 0 0 6px 0; font-size: 0.72rem; font-weight: 700;
+            letter-spacing: 0.05em; text-transform: uppercase; color: #94a3b8;
+            padding-bottom: 4px; border-bottom: 1px solid #2d3748;
+        }
+        .trace-msg {
+            margin: 4px 0; padding: 8px 10px; border-radius: 4px;
+            font-size: 0.75rem; font-family: 'JetBrains Mono', monospace;
+            white-space: pre-wrap; word-break: break-word;
+        }
+        .trace-msg-system    { background: #1e253288; border-left: 3px solid #475569; color: #cbd5e1; }
+        .trace-msg-user      { background: #1e3a5f33; border-left: 3px solid #3b82f6; color: #dbeafe; }
+        .trace-msg-assistant { background: #14532d33; border-left: 3px solid #22c55e; color: #d1fae5; }
+        .trace-role { font-weight: 700; text-transform: uppercase; font-size: 0.65rem; opacity: 0.7; display: block; margin-bottom: 2px; }
+        .trace-tool { background: #3b196233; border-left: 3px solid #a855f7; padding: 8px 10px; border-radius: 4px;
+            margin: 4px 0; font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; color: #e9d5ff; }
+        .trace-empty { color: #64748b; font-style: italic; font-size: 0.78rem; padding: 6px 0; }
+        .trace-valid { display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 0.68rem; font-weight: 700; }
+        .trace-valid.ok { background: #14532d; color: #6ee7b7; }
+        .trace-valid.fail { background: #7f1d1d; color: #fecaca; }
         .prompt-index { font-size: 0.7rem; color: #475569; }
     </style>
 </head>
@@ -160,6 +216,17 @@
             <div class="stat-card">
                 <span class="stat-label">Última Actividad</span>
                 <p id="last-update">--:--:--</p>
+            </div>
+        </section>
+
+        <section class="errors-section">
+            <div id="errors-header" class="errors-header" onclick="toggleErrors()">
+                <span class="errors-title">⚠ Errores del agente</span>
+                <span id="errors-badge" class="errors-badge">0</span>
+                <span id="errors-toggle" class="errors-toggle">▼ expandir</span>
+            </div>
+            <div id="errors-list" class="errors-list">
+                <div class="errors-empty">Sin errores registrados.</div>
             </div>
         </section>
 
@@ -231,6 +298,7 @@
             document.getElementById('last-update').innerText = new Date().toLocaleTimeString();
 
             if (fullData.resources) renderResources(fullData.resources);
+            renderErrors(fullData.errors || []);
 
             updateSidebar(memory);
             if (selectedAgent && memory[selectedAgent]) {
@@ -487,22 +555,95 @@
                 entry.className = 'prompt-entry';
                 entry.dataset.idx = idx;
 
-                const typeClass = `ptype-${p.type}`;
-                const typeLabel = p.type === 'greeting' ? 'Saludo' : p.type === 'negotiation' ? 'Negociación' : 'Despedida';
+                const typeClass = `ptype-${(p.type || '').replace('_retry','')}`;
+                const typeLabel =
+                    p.type === 'greeting' ? 'Saludo' :
+                    p.type === 'negotiation' ? 'Negociación' :
+                    p.type === 'negotiation_retry' ? 'Negociación (retry)' :
+                    'Despedida';
                 const isOpen = openPromptIndices.has(idx);
+
+                // Validation badge
+                let validHtml = '';
+                if (p.executed === true) {
+                    validHtml = `<span class="trace-valid ok">EJECUTADO</span>`;
+                } else if (p.validation) {
+                    validHtml = `<span class="trace-valid fail">${escapeHtml(p.validation)}</span>`;
+                }
+                const tsHtml = p.ts ? `<span style="color:#64748b;font-size:0.7rem;">${escapeHtml(p.ts.split('T')[1] || p.ts)}</span>` : '';
 
                 entry.innerHTML = `
                     <div class="prompt-header" onclick="togglePrompt(this)">
                         <div style="display:flex;align-items:center;gap:8px;">
                             <span class="prompt-index">#${idx + 1}</span>
                             <span class="prompt-type ${typeClass}">${typeLabel}</span>
+                            ${tsHtml}
+                            ${validHtml}
                         </div>
                         <span class="prompt-toggle">${isOpen ? '▲ colapsar' : '▼ expandir'}</span>
                     </div>
-                    <div class="prompt-body${isOpen ? ' open' : ''}">${escapeHtml(p.content)}</div>
+                    <div class="prompt-body${isOpen ? ' open' : ''}">${renderPromptBody(p)}</div>
                 `;
                 container.appendChild(entry);
             });
+        }
+
+        function renderPromptBody(p) {
+            // Si tenemos los nuevos campos (input_messages, output_*), mostramos trace completo
+            const hasTrace = Array.isArray(p.input_messages);
+            if (!hasTrace) {
+                return escapeHtml(p.content || '');
+            }
+            let html = '';
+
+            // Sección INPUT: mensajes enviados al LLM
+            html += '<div class="trace-section"><h4>📥 Input enviado a Ollama</h4>';
+            if (p.input_messages.length === 0) {
+                html += '<div class="trace-empty">(vacío)</div>';
+            } else {
+                p.input_messages.forEach(m => {
+                    const role = m.role || '';
+                    const cls = `trace-msg-${role}`;
+                    html += `<div class="trace-msg ${cls}">`;
+                    html += `<span class="trace-role">${escapeHtml(role)}</span>`;
+                    html += escapeHtml(m.content || '');
+                    html += '</div>';
+                });
+            }
+            html += '</div>';
+
+            // Sección OUTPUT: respuesta cruda del LLM
+            html += '<div class="trace-section"><h4>📤 Salida cruda de Ollama</h4>';
+            const hasContent = (p.output_content || '').trim().length > 0;
+            const hasTools = Array.isArray(p.output_tool_calls) && p.output_tool_calls.length > 0;
+            if (!hasContent && !hasTools) {
+                html += '<div class="trace-empty">(sin tool-calls y sin contenido — el LLM falló o se desconectó)</div>';
+            } else {
+                if (hasContent) {
+                    html += `<div class="trace-msg trace-msg-assistant"><span class="trace-role">content (texto suelto)</span>${escapeHtml(p.output_content)}</div>`;
+                }
+                if (hasTools) {
+                    p.output_tool_calls.forEach(tc => {
+                        html += `<div class="trace-tool">🔧 ${escapeHtml(tc.name)}(${escapeHtml(JSON.stringify(tc.arguments || {}, null, 2))})</div>`;
+                    });
+                }
+            }
+            html += '</div>';
+
+            // Sección VALIDACIÓN
+            html += '<div class="trace-section"><h4>✓ Validación</h4>';
+            const v = p.validation;
+            const exec = p.executed;
+            if (exec === true) {
+                html += `<div class="trace-msg trace-msg-assistant">EJECUTADO correctamente.</div>`;
+            } else if (v) {
+                html += `<div class="trace-msg trace-msg-system">Rechazado — motivo: <strong>${escapeHtml(v)}</strong></div>`;
+            } else {
+                html += '<div class="trace-empty">(sin validación registrada)</div>';
+            }
+            html += '</div>';
+
+            return html;
         }
 
         function togglePrompt(header) {
@@ -603,6 +744,51 @@
         document.getElementById('agentFilter').oninput = () => {
             if (fullData) updateSidebar(fullData.memory);
         };
+
+        /* ── Panel de errores ── */
+        function renderErrors(errors) {
+            const header = document.getElementById('errors-header');
+            const badge = document.getElementById('errors-badge');
+            const list = document.getElementById('errors-list');
+            const count = errors.length;
+            badge.textContent = count;
+            if (count > 0) {
+                header.classList.add('has-errors');
+                badge.classList.add('alert');
+            } else {
+                header.classList.remove('has-errors');
+                badge.classList.remove('alert');
+            }
+            if (count === 0) {
+                list.innerHTML = '<div class="errors-empty">Sin errores registrados.</div>';
+                return;
+            }
+            // Los más recientes arriba
+            const items = errors.slice().reverse().map(e => {
+                const ts = e.ts ? e.ts.split('T')[1] || e.ts : '';
+                const alias = e.alias ? `<span class="err-alias">${escapeHtml(e.alias)}</span>` : '';
+                const tb = e.traceback
+                    ? `<details style="margin-top:6px;"><summary style="cursor:pointer;color:#fbbf24;font-size:0.72rem;">traceback completo</summary><pre style="background:#0d1117;color:#fda4af;padding:8px;margin-top:4px;border-radius:4px;font-size:0.72rem;white-space:pre-wrap;overflow-x:auto;">${escapeHtml(e.traceback)}</pre></details>`
+                    : '';
+                const extra = e.extra
+                    ? `<details style="margin-top:6px;"><summary style="cursor:pointer;color:#94a3b8;font-size:0.72rem;">contexto extra</summary><pre style="background:#0d1117;color:#cbd5e1;padding:8px;margin-top:4px;border-radius:4px;font-size:0.72rem;white-space:pre-wrap;overflow-x:auto;">${escapeHtml(JSON.stringify(e.extra, null, 2))}</pre></details>`
+                    : '';
+                return `
+                    <div class="err-item">
+                        <div class="err-ts">${escapeHtml(ts)}</div>
+                        <div class="err-cat">${escapeHtml(e.category || '')}</div>
+                        <div class="err-msg">${alias}${escapeHtml(e.message || '')}${tb}${extra}</div>
+                    </div>`;
+            }).join('');
+            list.innerHTML = items;
+        }
+
+        function toggleErrors() {
+            const list = document.getElementById('errors-list');
+            const toggle = document.getElementById('errors-toggle');
+            const open = list.classList.toggle('open');
+            toggle.textContent = open ? '▲ contraer' : '▼ expandir';
+        }
 
         socket.onclose = () => console.log('Conexión cerrada');
     </script>

@@ -26,6 +26,3 @@ class Config(BaseSettings):
 
 # Instantiate the config
 config = Config()
-
-# Quick test to prove it works:
-# print(config.URL_BUTLER_SERVER)

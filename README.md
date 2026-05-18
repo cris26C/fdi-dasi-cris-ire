@@ -45,7 +45,7 @@ AGENT_NAME = "GATO"
 URL_BUTLER_SERVER = "http://127.0.0.1:7719"
 URL_BUTLER_SERVER = "http://147.96.80.224:7719"
 PORT = 7718
-LLM_MODEL = "llama3.2:3b" o "ministral-3:8b"
+LLM_MODEL = "llama3.2:3b"
 ```
 
 Para ejecutar uv con las variables de entorno, se puede usar el siguiente comando:

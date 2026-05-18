@@ -11,6 +11,7 @@ from loguru import logger
 from config import config
 from services import (create_agent_and_connect, 
                       get_alias_by_ip,
+                      get_connected_users,
                       get_actual_resources_and_objectives,
                       Agent)
 import uvicorn 
@@ -44,8 +45,9 @@ async def root(request: Request):
     return templates.TemplateResponse(
         request,             # El request va primero ahora
         "index.html",        # El nombre del archivo después
-        {"user_name": "Cristhian"} # Y el contexto (sin meter el request dentro)
+        {"user_name": "USUARIO"} # Y el contexto (sin meter el request dentro)
     )
+
 @app.post("/buzon")
 async def receive_message(
     agent_message: AgentMessage, 
@@ -57,10 +59,6 @@ async def receive_message(
         alias = get_alias_by_ip(client_host)
         logger.info(f"Recepción de mensaje desde [{alias}]: {msg}")
 
-        # Process in background so the HTTP response returns immediately.
-        # This prevents deadlocks when two agents send messages to each other
-        # at the same time — both /buzon endpoints return 200 instantly,
-        # and the LLM + outgoing messages are handled asynchronously.
         agent: Agent = app.state.agent
         asyncio.create_task(agent.response(alias, msg))
         logger.info(f">> {client_host} dice: {msg}")
@@ -82,7 +80,8 @@ async def websocket_endpoint(websocket: WebSocket):
             data = {
                 "agent_name": agent.name,
                 "memory": memory,
-                "resources": resources
+                "resources": resources,
+                "errors": agent.get_errors(),
             }
             await websocket.send_json(data)
             await asyncio.sleep(1)

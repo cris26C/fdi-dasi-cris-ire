@@ -13,7 +13,7 @@ import re
 user_connected = []
 TIMEOUT = 30.0
 
-MAX_NEGOTIATION_TURNS = 4
+MAX_NEGOTIATION_TURNS = 10
 
 async def ensure_alias_registered(alias: str, base_delay: float = 2.0, max_delay: float = 30.0) -> str:
     """Retry alias registration with bounded exponential backoff."""
@@ -391,10 +391,10 @@ async def send_message_to_alias(alias: str, mensaje: str):
     logger.info(f"Preparando para enviar mensaje al alias '{alias}': {mensaje}")
     ip = get_my_ip_by_alias(alias)
 
-    if alias == 'perro':
+    if alias.lower() == 'perro':
         logger.warning("¡CUIDADO! Estás a punto de enviar un mensaje a 'perro', que es un alias de prueba. Asegúrate de que esto es lo que quieres hacer.")
         ip = 'agent-two'
-    elif alias == 'gato':
+    elif alias.lower() == 'gato':
         logger.warning("¡CUIDADO! Estás a punto de enviar un mensaje a 'gato', que es un alias de prueba. Asegúrate de que esto es lo que quieres hacer.")
         ip = 'agent-one'
 

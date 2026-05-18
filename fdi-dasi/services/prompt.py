@@ -1,120 +1,109 @@
-NEGOTIATOR_SYSTEM_PROMPT = """Eres un comerciante. Negocias con {agent_alias}. Quedan {remaining_turns} turnos.
+"""Plantillas de prompt para el agente negociador.
 
-=================== TUS RECURSOS REALES ===================
-SOBRANTES (los UNICOS que puedes DAR): {surplus_resources}
-FALTANTES (los UNICOS que quieres RECIBIR): {missing_resources}
-===========================================================
-
-REGLAS OBLIGATORIAS:
-1. Solo puedes hablar de los recursos listados arriba. No inventes nombres de recursos. No menciones recursos que viste en mensajes anteriores si no estan en tus SOBRANTES o FALTANTES.
-2. Tu mensaje NO puede ser igual al ultimo mensaje de {agent_alias}. Usa palabras diferentes.
-3. Habla con "te doy", "te ofrezco". Jamas "le doy" ni "me das".
-
-QUE SIGNIFICA EL MENSAJE DE {agent_alias}:
-Si {agent_alias} dijo "te doy X por Y" entonces te ofrece X y te pide Y.
-
-ELIGE UNA DE ESTAS ACCIONES:
-
-ACCION A — {agent_alias} te pide {example_surplus} (esta en tus SOBRANTES):
-  Cierra el trato. Usa send_package enviando {example_surplus}.
-
-ACCION B — {agent_alias} te ofrece {example_missing} (esta en tus FALTANTES):
-  Acepta. Usa send_package enviando lo que te pide a cambio (debe ser de tus SOBRANTES).
-
-ACCION C — {agent_alias} dijo "Acepto" o "trato hecho":
-  Confirma. Usa send_package con el sobrante que ya prometiste.
-
-ACCION D — {agent_alias} te pide o te ofrece algo que NO esta en tus SOBRANTES ni FALTANTES:
-  Usa send_message_to_alias. Propón un trato real con TUS recursos reales:
-  ofrece dar 1 {example_surplus} y pedir 1 {example_missing}. Escribelo con palabras distintas a las de {agent_alias}.
-
-ACCION E — Sin oferta clara todavia:
-  Usa send_message_to_alias para proponer: doy 1 {example_surplus}, quiero 1 {example_missing}.
-
-RECORDATORIO FINAL: Solo {surplus_resources} (lo que das) y {missing_resources} (lo que recibes). Cualquier otro recurso no existe para ti.
+El LLM decide qué herramienta llamar (send_package o send_message_to_alias)
+basándose en sus recursos y en el mensaje del partner. Los ejemplos en el
+prompt usan los nombres reales de los recursos para que el modelo pueda
+copiar el patrón.
 """
 
-SUMMARY_PROMPT = """Resume en 2-3 frases esta negociacion: que ofrecio cada parte, que fue rechazado y en que punto quedaron. Solo español, sin listas."""
 
-INITIAL_GREETING_SYSTEM_PROMPT = """Eres un comerciante entusiasta que quiere cerrar tratos.
-Hablas con {agent_alias}. Tienes de sobra: {surplus_resources}. Necesitas: {missing_resources}.
-Escribe 2 frases en español, dirigiendote con "te" a {agent_alias}:
-Primero menciona que tienes mucho de {example_surplus} y que es de calidad.
-Luego propón el intercambio: te doy 1 {example_surplus} por 1 de tus {example_missing}.
-Ejemplo: "Tengo {example_surplus} de sobra y de la mejor calidad, te doy 1 {example_surplus} por 1 de tus {example_missing}. Es un trato justo para los dos!"
-Solo texto natural, sin JSON, sin llaves, sin la palabra Acepto."""
+GREETING_PROMPT = """
+Eres {my_name}, un comerciante.
 
-AGREEMENT_SYSTEM_PROMPT = """Ciclo cerrado con {agent_alias}.
+Hablas en español.
+Tus mensajes son cortos y naturales.
 
-Ya enviaste: {giving}
+Siempre debes usar herramientas.
+En este turno usa send_message_to_alias.
 
-Despidete naturalmente en 1 frase corta con entusiasmo.
-Ejemplos: "Fue un placer!", "Excelente trato, hasta la proxima!", "Cerramos bien, nos vemos!"
+No uses JSON.
+No uses send_package.
+Solo una acción por turno.
 """
 
-MAX_MSGS = 10
-SUMMARY_THRESHOLD = 8  # summarize older history beyond this length
+
+NEGOTIATOR_PROMPT = """
+Eres {my_name}, un comerciante negociando con {alias}.
+
+Quedan {remaining} turnos.
+
+Tus recursos sobrantes:
+{surplus}
+
+Tus recursos faltantes:
+{missing}
+
+Herramientas:
+- send_message_to_alias
+- send_package
+
+IMPORTANTE:
+Usa send_package INMEDIATAMENTE si el último mensaje de {alias}:
+- acepta tu propuesta
+- dice "acepto"
+- dice "trato"
+- dice "de acuerdo"
+- dice "hagamos trato"
+- ofrece uno de tus faltantes
+- pide uno de tus sobrantes
+
+Si ocurre cualquiera de esos casos:
+USA send_package.
+NO sigas negociando.
+
+Si NO hay acuerdo:
+usa send_message_to_alias.
+
+Reglas:
+- Solo puedes enviar recursos de {surplus}
+- Solo puedes pedir recursos de {missing}
+- No repitas la misma propuesta
+- Usa mensajes cortos y naturales
+- Habla en primera persona
+
+Ejemplo de mensaje:
+"Te doy 1 {ex_surplus} por 1 {ex_missing}, ¿aceptas?"
+
+Ejemplo de cierre:
+send_package(alias="{alias}", package={{"{ex_surplus}": 1}})
+"""
 
 
 def get_tools(alias: str, surplus_names: list = None, missing_names: list = None, greeting: bool = False) -> list:
-    """Return tool schemas with the alias locked AND the package keys constrained to real surplus names."""
-    if surplus_names:
-        example_key = surplus_names[0]
-        alt_key = surplus_names[-1] if len(surplus_names) > 1 else example_key
-        allowed = ", ".join(surplus_names)
-        package_schema = {
-            "type": "object",
-            "description": (
-                f"UN solo recurso con valor 1. "
-                f"Ejemplo correcto: {{\"{example_key}\": 1}}. "
-                f"La clave DEBE ser una de: {allowed}. "
-                f"El valor DEBE ser el numero entero 1. "
-                f"NO incluyas 'type', 'enum', 'alias' ni otros campos."
-            ),
-            "properties": {k: {"type": "integer", "enum": [1]} for k in surplus_names},
-            "additionalProperties": False
-        }
-    else:
-        example_key = "recurso"
-        alt_key = "recurso"
-        package_schema = {
-            "type": "object",
-            "description": "Los recursos a enviar. Claves: nombres de recursos. Valores: enteros positivos.",
-            "additionalProperties": {"type": "integer"},
-        }
+    """Esquema de herramientas. El alias queda fijado y las claves del paquete se limitan a sobrantes reales."""
+    surplus_names = surplus_names or []
+    missing_names = missing_names or []
+    ex_s = surplus_names[0] if surplus_names else 'recurso'
+    ex_m = missing_names[0] if missing_names else 'recurso'
 
-    example_missing = missing_names[0] if missing_names else "lo que necesitas"
+    if surplus_names:
+        package_props = {k: {"type": "integer", "enum": [1]} for k in surplus_names}
+        package_desc = (
+            f"Un solo recurso con valor 1. La clave DEBE ser una de: {', '.join(surplus_names)}. "
+            f"Ejemplo: {{\"{ex_s}\": 1}}"
+        )
+    else:
+        package_props = {}
+        package_desc = "No tienes sobrantes — no llames esta herramienta."
 
     if greeting:
-        msg_examples = f"'Tengo {example_key} de sobra y es de primera. Te doy 1 {example_key} por 1 de tus {example_missing}. Cerramos?'"
+        msg_hint = f"Saludo proponiendo trato. Ej: 'Hola {alias}, tengo {ex_s} y te doy 1 {ex_s} por 1 de tus {ex_m}, ¿hacemos trato?'"
     else:
-        msg_examples = (
-            f"'Te doy 1 {example_key} por 1 de tus {example_missing}, es un buen trato!', "
-            f"'Acepto el trato!', "
-            f"'No tengo eso. Te doy 1 {alt_key} por 1 de tus {example_missing}'."
-        )
+        msg_hint = f"Contraoferta concreta. Ej: 'Te doy 1 {ex_s} por 1 de tus {ex_m}, ¿aceptas?'"
 
     return [
         {
             "type": "function",
             "function": {
                 "name": "send_message_to_alias",
-                "description": (
-                    f"Envia un mensaje de texto al agente '{alias}'. "
-                    f"Usa siempre 'te' (no 'le' ni 'me'). Solo texto plano en español. "
-                    f"Ejemplos: {msg_examples}"
-                ),
+                "description": f"Envía un mensaje de texto plano (español) al agente '{alias}'. {msg_hint}",
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "alias": {
-                            "type": "string",
-                            "enum": [alias],
-                            "description": f"Debe ser exactamente '{alias}'"
-                        },
+                        "alias": {"type": "string", "enum": [alias]},
                         "mensaje": {
                             "type": "string",
-                            "description": "Texto plano en español. NO pongas JSON ni llaves aqui."
+                            "description": "Texto plano en español. NO pongas JSON ni llaves dentro."
                         }
                     },
                     "required": ["alias", "mensaje"]
@@ -125,16 +114,17 @@ def get_tools(alias: str, surplus_names: list = None, missing_names: list = None
             "type": "function",
             "function": {
                 "name": "send_package",
-                "description": f"Envia 1 unidad de UN recurso al agente '{alias}' para cerrar el trato. Solo se permite 1 unidad de un sobrante real.",
+                "description": f"Envía 1 unidad de UN recurso sobrante al agente '{alias}' para cerrar el trato.",
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "alias": {
-                            "type": "string",
-                            "enum": [alias],
-                            "description": f"Debe ser exactamente '{alias}'"
+                        "alias": {"type": "string", "enum": [alias]},
+                        "package": {
+                            "type": "object",
+                            "description": package_desc,
+                            "properties": package_props,
+                            "additionalProperties": False,
                         },
-                        "package": package_schema,
                     },
                     "required": ["alias", "package"],
                 }
@@ -143,5 +133,4 @@ def get_tools(alias: str, surplus_names: list = None, missing_names: list = None
     ]
 
 
-# Keep TOOLS as a default (no alias locked) for backward compatibility
 TOOLS = get_tools("AGENTE")
