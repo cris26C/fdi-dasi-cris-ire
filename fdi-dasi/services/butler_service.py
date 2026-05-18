@@ -7,10 +7,13 @@ from loguru import logger
 import asyncio
 import httpx
 from config import config
+import unicodedata
+import re
 
 user_connected = []
 TIMEOUT = 30.0
 
+MAX_NEGOTIATION_TURNS = 4
 
 async def ensure_alias_registered(alias: str, base_delay: float = 2.0, max_delay: float = 30.0) -> str:
     """Retry alias registration with bounded exponential backoff."""
@@ -67,12 +70,11 @@ async def create_agent_and_connect(agent, agent_name, greetings_enabled: bool = 
                 logger.info(f"Nuevos agentes detectados: {[u['alias'] for u in new_users]}")
                 
                 if greetings_enabled:
-                    # Usamos asyncio.gather para ejecutar todos los saludos al mismo tiempo
                     tasks = []
                     for user in new_users:
                         alias = user['alias']
-                        tasks.append(agent.send_greeting(alias))
-                        notified_aliases.add(alias) # Marcamos localmente de inmediato
+                        tasks.append(agent.response(alias, None))
+                        notified_aliases.add(alias)
                     
                     # Ejecutamos todas las tareas de saludo concurrentemente
                     if tasks:
@@ -120,14 +122,14 @@ async def send_message(msg: str, ip: str):
         })
     return response.json()
 
-def send_message_by_alias(msg: Optional[str], alias: Optional[str]):
+async def send_message_by_alias(msg: Optional[str], alias: Optional[str]):
     if msg is None or alias is None:
         raise ValueError("El mensaje y el alias no pueden ser None.")
 
     users = get_connected_users()
     for user in users:
         if user['alias'] == alias:
-            return send_message(msg, user['ip'])
+            return await send_message(msg, user['ip'])
     raise ValueError(f"Alias '{alias}' no encontrado entre los usuarios conectados.")
 
 def get_connected_users():
@@ -179,13 +181,28 @@ def get_or_create_alias(alias: str) -> str:
         create_alias(alias)
         return alias
     
+_info_cache: dict | None = None
+_info_cache_ts: float = 0.0
+_INFO_TTL: float = 15.0  # seconds; invalidated immediately after send_package
+
+def _invalidate_info_cache():
+    global _info_cache, _info_cache_ts
+    _info_cache = None
+    _info_cache_ts = 0.0
+
 def get_actual_resources_and_objectives():
-    """Obtiene los recursos actuales y objetivos del agente desde el servidor central
-        y calcula los recursos faltantes y sobrantes"""
+    global _info_cache, _info_cache_ts
+    import time
+    now = time.monotonic()
+    if _info_cache is not None and (now - _info_cache_ts) < _INFO_TTL:
+        return _info_cache
     response = requests.get(f'{config.URL_BUTLER_SERVER}/info')
     response.raise_for_status()
     data = response.json()
-    return process_resources_information(data)
+    logger.debug(f"Info actualizada: {data}")
+    _info_cache = process_resources_information(data)
+    _info_cache_ts = now
+    return _info_cache
 
 def process_resources_information(butler_data):
     recursos = butler_data['Recursos']
@@ -202,10 +219,14 @@ def process_resources_information(butler_data):
     for resource_name in all_resources:
         objective_amount = objetivo.get(resource_name, 0)
         actual_amount = recursos.get(resource_name, 0)
-        difference = objective_amount - actual_amount
 
-        info_actual["faltante"][resource_name] = max(difference, 0)
-        info_actual["sobrante"][resource_name] = max(actual_amount - objective_amount, 0)
+        deficit = objective_amount - actual_amount
+        surplus = actual_amount - objective_amount
+
+        if deficit > 0:
+            info_actual["faltante"][resource_name] = deficit
+        if surplus > 0:
+            info_actual["sobrante"][resource_name] = surplus
 
     return info_actual
 
@@ -233,22 +254,140 @@ async def send_package(alias: str, package):
         logger.error(f"send_package recibió un tipo inesperado: {type(package)} — valor: {package}")
         return f"Error: el paquete debe ser un diccionario, recibido: {type(package)}"
 
+    # Strip any key whose value is not a positive integer (guards against alias-schema metadata leaking in)
+    clean_package = {k: v for k, v in package.items() if isinstance(v, int) and v > 0}
+    if len(clean_package) != len(package):
+        bad_keys = [k for k in package if k not in clean_package]
+        logger.warning(f"send_package: claves inválidas eliminadas del paquete {bad_keys}. Original: {package} → Limpio: {clean_package}")
+        package = clean_package
+    if not package:
+        logger.error(f"send_package: paquete vacío tras sanitización.")
+        return "Error: el paquete no contiene recursos válidos (solo se permiten {{nombre: entero_positivo}})."
+
     users = get_connected_users()
     for user in users:
         if user['alias'] == alias:
             logger.info(f"Enviando paquete a {alias}: {package}")
             async with httpx.AsyncClient(timeout=TIMEOUT) as client:
-                #Calling to BUTLER SERVER to send the package to the other agent
                 response = await client.post(f'{config.URL_BUTLER_SERVER}/paquete/{alias}', json=package)
                 logger.info(f"Respuesta paquete: {response.status_code}")
+                _invalidate_info_cache()  # resources changed — force fresh fetch next turn
                 return response.json()
     raise ValueError(f"Alias '{alias}' no encontrado entre los usuarios conectados.")
+
+
+def _clean_text(text: str) -> str:
+    """Remove corrupted/problematic Unicode characters while preserving Spanish accents."""
+    if not text:
+        return text
+    
+    # Replace common corrupted characters with safe alternatives
+    replacements = {
+        '\xa0': ' ',      # Non-breaking space → regular space
+        '©': 'o',         # Copyright symbol (corrupted ó) → o
+        '®': 'o',         # Registered trademark → o
+        '™': '',          # Trademark → empty
+        '€': 'e',         # Euro → e
+        '¥': 'y',         # Yen → y
+        '§': '',          # Section sign → empty
+        '¶': '',          # Pilcrow → empty
+        '†': '',          # Dagger → empty
+        '‡': '',          # Double dagger → empty
+    }
+    
+    result = text
+    for bad, good in replacements.items():
+        result = result.replace(bad, good)
+    
+    # Remove control characters (0x00-0x1F except \t, \n, \r) and other invisible chars
+    result = ''.join(char for char in result if unicodedata.category(char)[0] != 'C' or char in '\t\n\r')
+    
+    # Normalize whitespace (remove extra spaces)
+    result = re.sub(r'\s+', ' ', result).strip()
+    
+    return result
+
+
+def _sanitize_mensaje(mensaje: str):
+    """Return clean plain-text mensaje, or None if the content is unrecoverable garbage.
+
+    The LLM sometimes stuffs a JSON object or a raw tool-call structure into the
+    'mensaje' parameter.  We try to extract the human-readable part; if we can't,
+    we return None so the caller can abort the send. Always removes corrupted chars.
+    """
+    stripped = mensaje.strip()
+    if not stripped.startswith('{'):
+        return _clean_text(mensaje)  # normal plain text — clean and return
+    if len(stripped) <= 3:
+        return None  # just "{" or "{}" — clearly broken
+
+    # Normalize escaped quotes before detecting (LLM sometimes double-escapes the dump)
+    normalized = stripped.replace('\\"', '"').replace("\\'", "'")
+
+    # Detect schema/parameter dumps: the LLM sometimes outputs the tool's own parameter
+    # definition as the message.
+    _SCHEMA_KEYWORDS = ('"type"', "'type'", '"description"', "'description'",
+                        '"enum"', "'enum'", '"properties"', "'properties'")
+    is_schema_dump = any(kw in normalized for kw in _SCHEMA_KEYWORDS)
+
+    if is_schema_dump:
+        # Try to extract the actual message text from a nested 'value' / 'mensaje' / 'text' field
+        # before giving up — the model often wraps the real message inside the dump.
+        for key in ('"value"', '"mensaje"', '"text"', '"content"'):
+            idx = normalized.find(key)
+            if idx == -1:
+                continue
+            # Find the quoted string value that follows the key
+            tail = normalized[idx + len(key):]
+            m = re.search(r':\s*"([^"]+)"', tail)
+            if m and len(m.group(1)) >= 5 and not m.group(1).startswith('{'):
+                extracted = m.group(1)
+                logger.warning(f"Schema dump detectado — extraido valor interior: {extracted!r}")
+                return _clean_text(extracted)
+        logger.error(f"Schema dump detectado en mensaje — rechazando: {stripped[:80]!r}")
+        return None
+
+    try:
+        parsed = json.loads(stripped)
+        if not isinstance(parsed, dict):
+            return None
+        # Tool-call wrapper: {"name": "...", "parameters": {"mensaje": "..."}}
+        params = parsed.get('parameters') or {}
+        if isinstance(params, dict):
+            inner = params.get('mensaje')
+            if isinstance(inner, str) and inner.strip() and not inner.strip().startswith('{'):
+                return _clean_text(inner.strip())
+        # Named content fields the model sometimes uses
+        for key in ('solicitud', 'mensaje', 'message', 'content', 'texto', 'oferta'):
+            val = parsed.get(key)
+            if isinstance(val, str) and val.strip() and not val.strip().startswith('{'):
+                return _clean_text(val.strip())
+        return None  # valid JSON but no extractable text
+    except json.JSONDecodeError:
+        # Not valid JSON — model may have wrapped plain text in {"..."} or {text}
+        if stripped.endswith('}'):
+            inner = stripped[1:-1].strip()
+            if inner.startswith('"') and inner.endswith('"'):
+                inner = inner[1:-1]  # strip surrounding quotes
+            if inner and len(inner) >= 10 and not inner.startswith('{'):
+                logger.warning(f"Mensaje envuelto en {{...}}, extrayendo texto interior")
+                return _clean_text(inner)
+        return None if len(stripped) < 10 else _clean_text(mensaje)
+
 
 async def send_message_to_alias(alias: str, mensaje: str):
     if not isinstance(alias, str) or not isinstance(mensaje, str):
         logger.error(f"El LLM alucinó los argumentos: alias={type(alias)}, mensaje={type(mensaje)}")
-        # Le devuelves un texto al LLM para que se dé cuenta de su error y lo intente de nuevo
         return "ERROR INTERNO: Has usado mal la herramienta. 'alias' y 'mensaje' DEBEN ser texto plano (strings), no objetos JSON con descripciones."
+
+    clean = _sanitize_mensaje(mensaje)
+    if clean is None:
+        logger.error(f"send_message_to_alias: mensaje inválido/JSON irreparable para '{alias}': {mensaje!r} — envío cancelado.")
+        return "ERROR: el modelo generó un mensaje inválido (JSON/vacío). Envío cancelado."
+    if clean != mensaje:
+        logger.warning(f"send_message_to_alias: mensaje limpiado: {mensaje!r} → {clean!r}")
+        mensaje = clean
+
     logger.info(f"Preparando para enviar mensaje al alias '{alias}': {mensaje}")
     ip = get_my_ip_by_alias(alias)
 

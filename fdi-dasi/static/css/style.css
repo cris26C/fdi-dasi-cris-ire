@@ -17,14 +17,15 @@ body {
     font-family: 'Inter', sans-serif;
     background-color: var(--bg-main);
     color: var(--text-main);
-    height: 100vh;
-    overflow: hidden;
+    min-height: 100vh;
+    overflow-y: auto;
 }
 
 .app-container {
     display: flex;
     flex-direction: column;
-    height: 100vh;
+    /* Cambiar height a min-height para que crezca con el contenido */
+    min-height: 100vh; 
     padding: 20px;
     gap: 20px;
 }
@@ -61,16 +62,6 @@ body {
 .stat-label { color: var(--text-dim); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; }
 .stat-card p { font-size: 1.8rem; font-weight: 600; margin: 8px 0 0; color: var(--accent); }
 
-/* Dashboard Body */
-.dashboard-body {
-    display: grid;
-    grid-template-columns: 300px 1fr;
-    gap: 20px;
-    flex-grow: 1;
-    min-height: 0;
-    overflow: hidden;
-}
-
 /* Sidebar */
 .sidebar {
     background: var(--bg-sidebar);
@@ -78,6 +69,7 @@ body {
     border-radius: 12px;
     display: flex;
     flex-direction: column;
+    height: 100%; 
     min-height: 0;
 }
 
@@ -120,30 +112,10 @@ body {
 .last-preview { font-size: 0.75rem; color: var(--text-dim); }
 .msg-count { background: var(--border); padding: 2px 8px; border-radius: 10px; font-size: 0.7rem; }
 
-/* Chat Area */
-.chat-area {
-    background: var(--bg-card);
-    border-radius: 12px;
-    border: 1px solid var(--border);
-    display: flex;
-    flex-direction: column;
-    min-height: 0;
-}
 
 .chat-header { padding: 15px; border-bottom: 1px solid var(--border); }
 .chat-header h2 { margin: 0; font-size: 1.1rem; }
 
-.message-container {
-    flex-grow: 1;
-    padding: 20px;
-    padding-bottom: 40px;
-    overflow-y: auto;
-    display: flex;
-    flex-direction: column;
-    gap: 15px;
-    scrollbar-width: auto;
-    scrollbar-color: #38bdf8 #1e293b;
-}
 
 .welcome-screen { text-align: center; margin-top: 100px; color: var(--text-dim); }
 
@@ -183,4 +155,33 @@ body {
 
 ::-webkit-scrollbar-corner {
     background: #1e293b;
+}
+
+.dashboard-body {
+    display: grid;
+    grid-template-columns: 300px 1fr;
+    gap: 20px;
+    flex-grow: 1; 
+    max-height: 65vh;
+    min-height: 0; 
+}
+
+.chat-area {
+    background: var(--bg-card);
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    height: 100%; /* Ocupa el espacio forzado del dashboard-body */
+    overflow: hidden;
+}
+
+.message-container {
+    flex-grow: 1;
+    padding: 20px;
+    padding-bottom: 40px;
+    overflow-y: auto; /* Este es el scroll real de los mensajes */
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
 }

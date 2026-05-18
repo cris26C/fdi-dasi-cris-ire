@@ -73,7 +73,4 @@ docker compose --profile gato up --no-deps agent-one
 
 docker compose --profile agents down
 
-docker cmpose --profile agents up --build
-
-
 docker compose --profile agents up --build

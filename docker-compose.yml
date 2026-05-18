@@ -19,10 +19,11 @@ services:
       - .:/app
       - /app/.venv
     ports:
-      - "7720:7720"
+      - "7721:7720"
     environment:
       - AGENT_NAME=GATO
       - PORT=7720
+      - EXTERNAL_AGENT_HOST=agent-one
       - EXTERNAL_AGENT_PORT=7720
       - OLLAMA_HOST=http://host.docker.internal:11434
       - DEVELOPMENT_URL_BUTLER_SERVER=http://butler-server:7719
@@ -41,10 +42,11 @@ services:
       - .:/app
       - /app/.venv
     ports:
-      - "7721:7720"
+      - "7722:7720"
     environment:
-      - AGENT_NAME=PERRO 
+      - AGENT_NAME=PERRO
       - PORT=7720
+      - EXTERNAL_AGENT_HOST=agent-two
       - EXTERNAL_AGENT_PORT=7720
       - OLLAMA_HOST=http://host.docker.internal:11434
       - DEVELOPMENT_URL_BUTLER_SERVER=http://butler-server:7719
@@ -52,7 +54,29 @@ services:
     command: uv run python fdi-dasi/main.py --host 0.0.0.0
     depends_on:
       - butler-server
-
+    
+  # agent-three:
+  #   build: .
+  #   # AQUÍ AGREGAMOS LOS PERFILES
+  #   profiles:
+  #     - "oso"
+  #     - "agents"
+  #   volumes:
+  #     - .:/app
+  #     - /app/.venv
+  #   ports:
+  #     - "7723:7720"
+  #   environment:
+  #     - AGENT_NAME=OSO
+  #     - PORT=7720
+  #     - EXTERNAL_AGENT_HOST=agent-three
+  #     - EXTERNAL_AGENT_PORT=7720
+  #     - OLLAMA_HOST=http://host.docker.internal:11434
+  #     - DEVELOPMENT_URL_BUTLER_SERVER=http://butler-server:7719
+  #     - MODE=development
+  #   command: uv run python fdi-dasi/main.py --host 0.0.0.0
+  #   depends_on:
+  #     - butler-server
 networks:
   default:
     name: fdi_dasi_network

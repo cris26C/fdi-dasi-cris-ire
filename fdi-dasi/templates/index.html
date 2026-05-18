@@ -2,23 +2,152 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <title>{{ title }}</title>
+    <title>Agent Debug</title>
     <link rel="stylesheet" href="{{ url_for('static', path='/css/style.css') }}">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        /* ── Resources section ── */
+        .resources-section {
+            margin-bottom: 20px;
+            background: #1e2532;
+            border: 1px solid #2d3748;
+            border-radius: 8px;
+            padding: 16px 20px;
+        }
+        .resources-section h3 { margin: 0 0 12px; color: #f8fafc; font-size: 1rem; font-weight: 600; }
+        .resources-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; }
+        .resource-card { background: #131a28; border: 1px solid #2d3748; border-radius: 6px; padding: 12px; }
+        .resource-card.danger  { border-left: 4px solid #f87171; }
+        .resource-card.success { border-left: 4px solid #34d399; }
+        .resource-card.neutral { border-left: 4px solid #64748b; }
+        .res-header { font-weight: 600; color: #f1f5f9; margin-bottom: 8px; text-transform: capitalize; font-size: 0.95rem; border-bottom: 1px solid #2d3748; padding-bottom: 4px; }
+        .res-row { display: flex; justify-content: space-between; font-size: 0.85rem; margin-bottom: 4px; }
+        .res-label { color: #94a3b8; }
+        .res-val { font-weight: 500; color: #f8fafc; }
+        .val-danger  { color: #f87171; font-weight: 600; }
+        .val-success { color: #34d399; font-weight: 600; }
+
+        /* ── Tab bar (new, not in style.css) ── */
+        .chat-tabs { display: flex; gap: 4px; padding: 8px 16px; background: #161d2d; border-bottom: 1px solid #2d3748; flex-shrink: 0; }
+        .tab-btn { padding: 5px 14px; border-radius: 4px; border: 1px solid #2d3748; background: transparent; color: #94a3b8; cursor: pointer; font-size: 0.8rem; font-family: inherit; transition: all 0.15s; }
+        .tab-btn.active { background: #3b5bdb; border-color: #3b5bdb; color: #fff; }
+        .export-btn { margin-left: auto; color: #34d399; border-color: #065f46; }
+        .export-btn:hover:not(:disabled) { background: #065f4666; color: #6ee7b7; }
+        .export-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+        /* ── Filter bar above messages ── */
+        .filter-bar { display: flex; gap: 6px; padding: 10px 16px; background: #0f1623; border-bottom: 1px solid #2d3748; flex-shrink: 0; align-items: center; }
+        .filter-label { color: #64748b; font-size: 0.72rem; font-weight: 600; letter-spacing: 0.05em; margin-right: 6px; }
+        .filter-btn { padding: 4px 12px; border-radius: 3px; border: 1px solid #2d3748; background: transparent; color: #94a3b8; cursor: pointer; font-size: 0.72rem; font-family: inherit; transition: all 0.15s; }
+        .filter-btn:hover { background: #1e253288; color: #e2e8f0; }
+        .filter-btn.active { background: #3b5bdb; border-color: #3b5bdb; color: #fff; }
+        .filter-btn .count { display: inline-block; margin-left: 5px; padding: 0 5px; background: rgba(0,0,0,0.3); border-radius: 8px; font-size: 0.65rem; }
+        .filter-info { margin-left: auto; color: #64748b; font-size: 0.7rem; font-style: italic; }
+
+        /* ── Tab panels — mirrors .message-container from style.css ── */
+        .tab-panel { display: none; flex-direction: column; gap: 10px; flex-grow: 1; overflow-y: auto; padding: 0; min-height: 0; }
+        .tab-panel.active { display: flex; }
+        .tab-panel > .welcome-screen { padding: 16px; }
+        #tab-prompts.active { padding: 16px; }
+
+        /* ── Transcript (vertical timeline) ── */
+        .transcript { display: flex; flex-direction: column; gap: 0; }
+        .msg-row {
+            display: grid;
+            grid-template-columns: 45px 32px 1fr;
+            gap: 10px;
+            padding: 12px 16px;
+            border-left: 4px solid transparent;
+            position: relative;
+            transition: background 0.1s;
+            border-bottom: 1px solid #1e253244;
+        }
+        .msg-row:hover { background: #1e253244; }
+        .msg-row.sent     { border-left-color: #16a34a; background: #16a34a10; }
+        .msg-row.received { border-left-color: #2563eb; background: #2563eb10; }
+        .msg-row.event    { border-left-color: #a855f7; background: #a855f710; }
+        .msg-row.is-echo  { opacity: 0.5; }
+        .msg-row.is-echo::before {
+            content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px;
+            background: repeating-linear-gradient(to bottom, #f59e0b 0 5px, transparent 5px 10px);
+        }
+        .msg-row.hidden { display: none; }
+
+        .msg-seq-col { font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; color: #64748b; padding-top: 3px; text-align: right; font-weight: 600; }
+
+        .msg-dir-icon {
+            font-size: 1.3rem; line-height: 1; padding-top: 2px; text-align: center;
+            font-weight: 700; font-family: 'JetBrains Mono', monospace;
+        }
+        .msg-row.sent     .msg-dir-icon { color: #34d399; }
+        .msg-row.received .msg-dir-icon { color: #60a5fa; }
+        .msg-row.event    .msg-dir-icon { color: #c084fc; }
+
+        .msg-body { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+        .msg-header { display: flex; align-items: center; gap: 8px; font-size: 0.75rem; flex-wrap: wrap; }
+        .msg-author { font-weight: 700; letter-spacing: 0.03em; font-size: 0.82rem; }
+        .msg-row.sent     .msg-author { color: #34d399; }
+        .msg-row.received .msg-author { color: #60a5fa; }
+        .msg-row.event    .msg-author { color: #c084fc; }
+        .msg-arrow { color: #475569; font-size: 0.9rem; }
+        .msg-recipient { color: #94a3b8; font-weight: 500; font-size: 0.8rem; }
+
+        .msg-content { font-size: 0.9rem; line-height: 1.5; color: #e2e8f0; white-space: pre-wrap; word-break: break-word; padding: 2px 0; }
+        .msg-row.is-echo .msg-content { font-style: italic; }
+        .msg-row.event .msg-content { font-family: 'JetBrains Mono', monospace; font-size: 0.82rem; color: #ddd6fe; }
+
+        .msg-type-badge { display: inline-block; font-size: 0.62rem; padding: 2px 8px; border-radius: 3px; font-weight: 700; letter-spacing: 0.04em; }
+        .badge-message { background: #1e40af33; color: #93c5fd; }
+        .badge-greeting { background: #064e3b55; color: #6ee7b7; }
+        .badge-package { background: #581c8755; color: #d8b4fe; }
+        .badge-farewell { background: #7e22ce55; color: #e9d5ff; }
+        .badge-no-action { background: #37415133; color: #94a3b8; }
+        .msg-echo-tag { display: inline-block; font-size: 0.62rem; padding: 2px 8px; border-radius: 3px; background: #78350f55; color: #fbbf24; font-weight: 700; letter-spacing: 0.05em; }
+
+        /* Empty filter result */
+        .empty-filter { padding: 40px 20px; text-align: center; color: #64748b; font-style: italic; }
+
+        /* Cycle boundary marker (separates completed negotiations) */
+        .cycle-boundary {
+            display: flex; align-items: center; gap: 12px;
+            padding: 14px 20px; margin: 4px 0;
+            color: #64748b; font-size: 0.72rem; font-weight: 700;
+            letter-spacing: 0.15em; text-transform: uppercase;
+        }
+        .cycle-boundary::before, .cycle-boundary::after {
+            content: ''; flex: 1; height: 1px;
+            background: linear-gradient(to right, transparent, #475569, transparent);
+        }
+
+        /* ── Prompt history ── */
+        .prompt-entry { border: 1px solid #2d3748; border-radius: 6px; overflow: hidden; }
+        .prompt-header { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; background: #1e2532; cursor: pointer; user-select: none; }
+        .prompt-header:hover { background: #263040; }
+        .prompt-type { font-size: 0.75rem; font-weight: 600; padding: 2px 8px; border-radius: 3px; }
+        .ptype-greeting    { background: #1e3a5f55; color: #93c5fd; }
+        .ptype-negotiation { background: #3b196255; color: #c4b5fd; }
+        .ptype-farewell    { background: #1a3a2a55; color: #6ee7b7; }
+        .prompt-toggle { color: #64748b; font-size: 0.8rem; }
+        .prompt-body { display: none; padding: 12px; background: #0d1117; font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; color: #c9d1d9; white-space: pre-wrap; line-height: 1.6; border-top: 1px solid #2d3748; }
+        .prompt-body.open { display: block; }
+        .prompt-index { font-size: 0.7rem; color: #475569; }
+    </style>
 </head>
 <body>
     <div class="app-container">
-        <!-- Header Principal -->
         <header class="main-header">
             <div class="agent-identity">
                 <div class="status-indicator online"></div>
-                <h1>{{ title }} <span class="owner-tag" id="current-agent-name">...</span></h1>
+                <h1>Agent Debug <span class="owner-tag" id="current-agent-name">...</span></h1>
             </div>
             <p>Operador: <strong>{{ user_name }}</strong></p>
-            <p id = "resources"></p>
         </header>
 
-        <!-- Métricas Rápidas -->
+        <section class="resources-section">
+            <h3>Inventario y Objetivos</h3>
+            <div id="resources-container" class="resources-grid"></div>
+        </section>
+
         <section class="stats-grid">
             <div class="stat-card">
                 <span class="stat-label">Agentes en Memoria</span>
@@ -34,28 +163,45 @@
             </div>
         </section>
 
-        <!-- Cuerpo del Dashboard -->
         <main class="dashboard-body">
-            <!-- Sidebar: Lista de Agentes con los que se ha hablado -->
             <aside class="sidebar">
                 <div class="sidebar-header">
                     <h3>Conversaciones</h3>
                     <input type="text" id="agentFilter" placeholder="Buscar agente..." class="search-input">
                 </div>
                 <ul id="agent-list" class="agent-list">
-                    <!-- Se llena dinámicamente -->
                     <li class="empty-state">No hay agentes</li>
                 </ul>
             </aside>
 
-            <!-- Área de Chat/Mensajes -->
             <section class="chat-area">
                 <div id="chat-header" class="chat-header">
                     <h2 id="selected-agent-display">Selecciona un agente</h2>
                 </div>
-                <div id="message-container" class="message-container">
-                    <div class="welcome-screen">
+
+                <div class="chat-tabs">
+                    <button class="tab-btn active" onclick="switchTab('messages')">Mensajes</button>
+                    <button class="tab-btn" onclick="switchTab('prompts')">Prompts</button>
+                    <button class="tab-btn export-btn" id="export-btn" onclick="exportPrompts()" title="Exportar historial de prompts como JSON" disabled>⬇ Exportar</button>
+                </div>
+
+                <div id="tab-messages" class="tab-panel active">
+                    <div class="filter-bar" id="filter-bar" style="display:none;">
+                        <span class="filter-label">FILTRO:</span>
+                        <button class="filter-btn active" data-filter="all" onclick="setFilter('all')">Todos <span class="count" id="count-all">0</span></button>
+                        <button class="filter-btn" data-filter="sent" onclick="setFilter('sent')">→ Enviados <span class="count" id="count-sent">0</span></button>
+                        <button class="filter-btn" data-filter="received" onclick="setFilter('received')">← Recibidos <span class="count" id="count-received">0</span></button>
+                        <button class="filter-btn" data-filter="event" onclick="setFilter('event')">⚡ Eventos <span class="count" id="count-event">0</span></button>
+                        <span class="filter-info" id="filter-info"></span>
+                    </div>
+                    <div class="welcome-screen" id="welcome-msg">
                         <p>Selecciona un agente de la lista para ver el historial de negociación.</p>
+                    </div>
+                </div>
+
+                <div id="tab-prompts" class="tab-panel">
+                    <div class="welcome-screen" id="welcome-prompts">
+                        <p>Selecciona un agente para ver el historial de prompts.</p>
                     </div>
                 </div>
             </section>
@@ -65,38 +211,318 @@
     <script>
         let fullData = null;
         let selectedAgent = null;
+        let activeTab = 'messages';
+        let openPromptIndices = new Set();
+        let messageFilter = 'all';  // 'all' | 'sent' | 'received' | 'event'
 
-        // Conexión dinámica al socket
         const socket = new WebSocket(`ws://${window.location.host}/ws/stats`);
 
         socket.onmessage = function(event) {
             fullData = JSON.parse(event.data);
             const memory = fullData.memory;
-            
-            // 1. Actualizar Identidad y Stats Globales
+
             document.getElementById('current-agent-name').innerText = `[${fullData.agent_name}]`;
-            
+
             const agentKeys = Object.keys(memory);
-            const totalMsgs = agentKeys.reduce((acc, key) => acc + memory[key].length, 0);
-            
+            const totalMsgs = agentKeys.reduce((acc, key) => acc + (memory[key].messages || []).length, 0);
+
             document.getElementById('total-agents').innerText = agentKeys.length;
             document.getElementById('total-messages').innerText = totalMsgs;
             document.getElementById('last-update').innerText = new Date().toLocaleTimeString();
-            document.getElementById("resources").innerText = "FALTANTE: " + JSON.stringify(fullData["resources"]["faltante"]) + "OBJETIVO: " + JSON.stringify(fullData["resources"]["objetivo"]) + "ACTUAL: " + JSON.stringify(fullData["resources"]["actual"]);
-            // 2. Actualizar Sidebar y Chat
+
+            if (fullData.resources) renderResources(fullData.resources);
+
             updateSidebar(memory);
             if (selectedAgent && memory[selectedAgent]) {
-                renderMessages(memory[selectedAgent]);
+                if (activeTab === 'messages') renderMessages(memory[selectedAgent].messages || []);
+                else renderPrompts(memory[selectedAgent].prompts || []);
             }
+            updateExportBtn();
         };
 
+        function switchTab(tab) {
+            activeTab = tab;
+            document.querySelectorAll('.tab-btn:not(.export-btn)').forEach((btn, i) => {
+                btn.classList.toggle('active', ['messages', 'prompts'][i] === tab);
+            });
+            document.getElementById('tab-messages').classList.toggle('active', tab === 'messages');
+            document.getElementById('tab-prompts').classList.toggle('active', tab === 'prompts');
+            updateExportBtn();
+
+            if (selectedAgent && fullData) {
+                const data = fullData.memory[selectedAgent];
+                if (!data) return;
+                if (tab === 'messages') renderMessages(data.messages || []);
+                else renderPrompts(data.prompts || []);
+            }
+        }
+
+        function updateExportBtn() {
+            const btn = document.getElementById('export-btn');
+            const hasPrompts = selectedAgent && fullData && (fullData.memory[selectedAgent]?.prompts || []).length > 0;
+            btn.disabled = !(activeTab === 'prompts' && hasPrompts);
+        }
+
+        function exportPrompts() {
+            if (!selectedAgent || !fullData) return;
+            const prompts = fullData.memory[selectedAgent]?.prompts || [];
+            if (prompts.length === 0) return;
+
+            const payload = {
+                agent: fullData.agent_name,
+                partner: selectedAgent,
+                exported_at: new Date().toISOString(),
+                prompts: prompts.map((p, i) => ({ index: i + 1, type: p.type, content: p.content }))
+            };
+
+            const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `prompts_${fullData.agent_name}_${selectedAgent}_${Date.now()}.json`;
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        /* ── Message rendering ── */
+        function parseMsgContent(role, content) {
+            if (role === 'system' && content === '[--- fin de ciclo de negociación ---]') {
+                return { type: 'boundary', direction: 'boundary', text: 'fin de ciclo' };
+            }
+            if (role === 'user') {
+                return { type: 'message', direction: 'received', text: content };
+            }
+            const pkg = content.match(/^\[Paquete enviado a .+?: (.+)\]$/);
+            if (pkg) return { type: 'package', direction: 'event', text: pkg[1] };
+
+            const farewell = content.match(/^Despedida enviada a .+?: '([\s\S]*)'$/);
+            if (farewell) return { type: 'farewell', direction: 'sent', text: farewell[1] };
+
+            if (content.startsWith('[Ninguna') || content.startsWith('[mensaje vacío')) {
+                return { type: 'no-action', direction: 'sent', text: content };
+            }
+
+            const oldMsg = content.match(/^Envié un mensaje a .+? con el siguiente mensaje:'([\s\S]*)'$/);
+            if (oldMsg) return { type: 'message', direction: 'sent', text: oldMsg[1] };
+            const oldPkg = content.match(/^Envié un paquete a .+?: (.+)$/);
+            if (oldPkg) return { type: 'package', direction: 'event', text: oldPkg[1] };
+
+            const looksLikeClosure = /trato (ha sido )?completado|hasta luego|adi[oó]s|placer negociar/i.test(content);
+            if (looksLikeClosure) return { type: 'farewell', direction: 'sent', text: content };
+
+            return { type: 'message', direction: 'sent', text: content };
+        }
+
+        function badgeFor(type) {
+            switch (type) {
+                case 'greeting':  return { cls: 'badge-greeting',  text: '👋 SALUDO' };
+                case 'package':   return { cls: 'badge-package',   text: '📦 PAQUETE ENVIADO' };
+                case 'farewell':  return { cls: 'badge-farewell',  text: '💛 DESPEDIDA' };
+                case 'no-action': return { cls: 'badge-no-action', text: '— SIN ACCIÓN' };
+                default:          return { cls: 'badge-message',   text: '💬 MENSAJE' };
+            }
+        }
+
+        function dirIcon(direction) {
+            if (direction === 'sent') return '→';
+            if (direction === 'received') return '←';
+            return '⚡';  // event
+        }
+
+        function setFilter(f) {
+            messageFilter = f;
+            document.querySelectorAll('.filter-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.filter === f);
+            });
+            if (selectedAgent && fullData) {
+                renderMessages(fullData.memory[selectedAgent]?.messages || []);
+            }
+        }
+
+        function renderMessages(messages) {
+            const container = document.getElementById('tab-messages');
+            document.getElementById('welcome-msg').style.display = 'none';
+            document.getElementById('filter-bar').style.display = 'flex';
+
+            // Remove old transcript, keep welcome and filter-bar
+            Array.from(container.children).forEach(c => {
+                if (!c.id) c.remove();
+            });
+
+            const myName = fullData?.agent_name || 'YO';
+            const partner = selectedAgent || '...';
+
+            // First pass: parse all to compute filter counts (boundaries excluded from counts)
+            const parsed = messages.map(m => parseMsgContent(m.role, m.content));
+            const counts = { all: 0, sent: 0, received: 0, event: 0 };
+            parsed.forEach(p => {
+                if (p.direction === 'boundary') return;
+                counts.all++;
+                counts[p.direction]++;
+            });
+            document.getElementById('count-all').textContent = counts.all;
+            document.getElementById('count-sent').textContent = counts.sent;
+            document.getElementById('count-received').textContent = counts.received;
+            document.getElementById('count-event').textContent = counts.event;
+
+            document.getElementById('filter-info').textContent =
+                `Viendo memoria de ${myName} con ${partner}`;
+
+            const transcript = document.createElement('div');
+            transcript.className = 'transcript';
+
+            let prevText = null;
+            let firstInCycle = true;
+            let visibleCount = 0;
+            // Boundaries deferred until a visible message follows (avoids orphaned separators)
+            let pendingBoundaries = [];
+
+            parsed.forEach((p, idx) => {
+                // Cycle boundary: in 'all' mode render in-place; otherwise defer until a
+                // visible message follows so empty-cycle separators don't clutter filtered views.
+                if (p.direction === 'boundary') {
+                    if (messageFilter === 'all') {
+                        const sep = document.createElement('div');
+                        sep.className = 'cycle-boundary';
+                        sep.textContent = '⎯ fin del ciclo de negociación ⎯';
+                        transcript.appendChild(sep);
+                    } else {
+                        pendingBoundaries.push(true);
+                    }
+                    prevText = null;
+                    firstInCycle = true;
+                    return;
+                }
+
+                // First real message in each cycle (or very first overall) is the greeting
+                const isGreeting = firstInCycle && p.type === 'message';
+                firstInCycle = false;
+
+                const isEcho = prevText && p.direction !== 'event'
+                    && prevText.trim().toLowerCase() === p.text.trim().toLowerCase();
+
+                // Filter check
+                const passes = messageFilter === 'all' || messageFilter === p.direction;
+                if (passes) visibleCount++;
+
+                // Flush pending boundaries only when a visible message is about to render
+                if (passes && pendingBoundaries.length > 0) {
+                    pendingBoundaries.forEach(() => {
+                        const sep = document.createElement('div');
+                        sep.className = 'cycle-boundary';
+                        sep.textContent = '⎯ fin del ciclo de negociación ⎯';
+                        transcript.appendChild(sep);
+                    });
+                    pendingBoundaries = [];
+                }
+
+                const row = document.createElement('div');
+                row.className = `msg-row ${p.direction}${isEcho ? ' is-echo' : ''}${passes ? '' : ' hidden'}`;
+
+                const displayType = isGreeting ? 'greeting' : p.type;
+                const { cls, text } = badgeFor(displayType);
+
+                let author, recipient, arrowChar;
+                if (p.direction === 'event') {
+                    author = myName;
+                    recipient = partner;
+                    arrowChar = '⇒';
+                } else if (p.direction === 'sent') {
+                    author = myName;
+                    recipient = partner;
+                    arrowChar = '→';
+                } else {
+                    author = partner;
+                    recipient = myName;
+                    arrowChar = '→';
+                }
+
+                row.innerHTML = `
+                    <div class="msg-seq-col">#${idx + 1}</div>
+                    <div class="msg-dir-icon">${dirIcon(p.direction)}</div>
+                    <div class="msg-body">
+                        <div class="msg-header">
+                            <span class="msg-author">${escapeHtml(author)}</span>
+                            <span class="msg-arrow">${arrowChar}</span>
+                            <span class="msg-recipient">${escapeHtml(recipient)}</span>
+                            <span class="msg-type-badge ${cls}">${text}</span>
+                            ${isEcho ? '<span class="msg-echo-tag">⟳ ECO</span>' : ''}
+                        </div>
+                        <div class="msg-content">${escapeHtml(p.text)}</div>
+                    </div>
+                `;
+                transcript.appendChild(row);
+                if (p.direction !== 'event') prevText = p.text;
+            });
+
+            container.appendChild(transcript);
+
+            if (visibleCount === 0 && parsed.length > 0) {
+                const empty = document.createElement('div');
+                empty.className = 'empty-filter';
+                empty.textContent = `Sin mensajes para el filtro "${messageFilter}".`;
+                container.appendChild(empty);
+            }
+        }
+
+        /* ── Prompt rendering ── */
+        function renderPrompts(prompts) {
+            const container = document.getElementById('tab-prompts');
+            document.getElementById('welcome-prompts').style.display = 'none';
+
+            Array.from(container.children).forEach(c => {
+                if (!c.id) c.remove();
+            });
+
+            if (prompts.length === 0) {
+                const empty = document.createElement('p');
+                empty.style.color = '#64748b';
+                empty.textContent = 'No hay prompts registrados para este agente.';
+                container.appendChild(empty);
+                return;
+            }
+
+            prompts.forEach((p, idx) => {
+                const entry = document.createElement('div');
+                entry.className = 'prompt-entry';
+                entry.dataset.idx = idx;
+
+                const typeClass = `ptype-${p.type}`;
+                const typeLabel = p.type === 'greeting' ? 'Saludo' : p.type === 'negotiation' ? 'Negociación' : 'Despedida';
+                const isOpen = openPromptIndices.has(idx);
+
+                entry.innerHTML = `
+                    <div class="prompt-header" onclick="togglePrompt(this)">
+                        <div style="display:flex;align-items:center;gap:8px;">
+                            <span class="prompt-index">#${idx + 1}</span>
+                            <span class="prompt-type ${typeClass}">${typeLabel}</span>
+                        </div>
+                        <span class="prompt-toggle">${isOpen ? '▲ colapsar' : '▼ expandir'}</span>
+                    </div>
+                    <div class="prompt-body${isOpen ? ' open' : ''}">${escapeHtml(p.content)}</div>
+                `;
+                container.appendChild(entry);
+            });
+        }
+
+        function togglePrompt(header) {
+            const body = header.nextElementSibling;
+            const toggle = header.querySelector('.prompt-toggle');
+            const entry = header.parentElement;
+            const idx = parseInt(entry.dataset.idx);
+            const open = body.classList.toggle('open');
+            toggle.textContent = open ? '▲ colapsar' : '▼ expandir';
+            if (open) openPromptIndices.add(idx);
+            else openPromptIndices.delete(idx);
+        }
+
+        /* ── Sidebar ── */
         function updateSidebar(memory) {
             const list = document.getElementById('agent-list');
             const filter = document.getElementById('agentFilter').value.toLowerCase();
             const agents = Object.keys(memory).filter(a => a.toLowerCase().includes(filter));
-            
-            list.innerHTML = "";
-            
+
+            list.innerHTML = '';
             if (agents.length === 0) {
                 list.innerHTML = '<li class="empty-state">Sin resultados</li>';
                 return;
@@ -105,51 +531,80 @@
             agents.forEach(agent => {
                 const li = document.createElement('li');
                 li.className = `agent-item ${selectedAgent === agent ? 'active' : ''}`;
-                const lastMsg = memory[agent][memory[agent].length - 1];
-                
+                const msgs = memory[agent].messages || [];
+                const lastMsg = msgs[msgs.length - 1];
+                const preview = lastMsg ? lastMsg.content.substring(0, 35) + '…' : '';
+                const promptCount = (memory[agent].prompts || []).length;
+
                 li.innerHTML = `
                     <div class="agent-info">
                         <span class="agent-name">${agent}</span>
-                        <span class="last-preview">${lastMsg ? lastMsg.content.substring(0, 30) + '...' : ''}</span>
+                        <span class="last-preview">${preview}</span>
                     </div>
-                    <span class="msg-count">${memory[agent].length}</span>
+                    <div style="text-align:right;">
+                        <span class="msg-count">${msgs.length}</span>
+                        <div style="font-size:0.65rem;color:#64748b;margin-top:2px;">${promptCount} prompts</div>
+                    </div>
                 `;
-                
+
                 li.onclick = () => {
+                    if (selectedAgent !== agent) openPromptIndices.clear();
                     selectedAgent = agent;
                     document.getElementById('selected-agent-display').innerText = `Historial con: ${agent}`;
-                    renderMessages(memory[agent]);
-                    updateSidebar(memory); // Para actualizar clase 'active'
+                    const data = memory[agent];
+                    if (activeTab === 'messages') renderMessages(data.messages || []);
+                    else renderPrompts(data.prompts || []);
+                    updateSidebar(memory);
+                    updateExportBtn();
                 };
                 list.appendChild(li);
             });
         }
 
-        function renderMessages(history) {
-            const container = document.getElementById('message-container');
-            container.innerHTML = "";
-            
-            history.forEach(msg => {
-                const div = document.createElement('div');
-                // Si el rol es 'user' asumimos que es el mensaje recibido del otro agente
-                div.className = `msg-bubble ${msg.role === 'user' ? 'received' : 'sent'}`;
-                div.innerHTML = `
-                    <div class="msg-content">
-                        <span class="msg-role">${msg.role.toUpperCase()}</span>
-                        <p>${msg.content}</p>
-                    </div>
+        /* ── Resources ── */
+        function renderResources(resourcesObj) {
+            const container = document.getElementById('resources-container');
+            container.innerHTML = '';
+            const { actual = {}, objetivo = {}, faltante = {}, sobrante = {} } = resourcesObj;
+            const allKeys = new Set([...Object.keys(actual), ...Object.keys(objetivo)]);
+
+            allKeys.forEach(res => {
+                const valActual   = actual[res]   || 0;
+                const valObjetivo = objetivo[res] || 0;
+                const valFaltante = faltante[res] || 0;
+                const valSobrante = sobrante[res] || 0;
+
+                let statusClass = 'neutral';
+                if (valFaltante > 0) statusClass = 'danger';
+                else if (valActual >= valObjetivo && valObjetivo > 0) statusClass = 'success';
+
+                const card = document.createElement('div');
+                card.className = `resource-card ${statusClass}`;
+                let html = `
+                    <div class="res-header">${res}</div>
+                    <div class="res-row"><span class="res-label">Actual:</span><span class="res-val">${valActual}</span></div>
+                    <div class="res-row"><span class="res-label">Objetivo:</span><span class="res-val">${valObjetivo}</span></div>
                 `;
-                container.appendChild(div);
+                if (valFaltante > 0) html += `<div class="res-row"><span class="res-label">Falta:</span><span class="res-val val-danger">-${valFaltante}</span></div>`;
+                if (valSobrante > 0) html += `<div class="res-row"><span class="res-label">Sobra:</span><span class="res-val val-success">+${valSobrante}</span></div>`;
+                card.innerHTML = html;
+                container.appendChild(card);
             });
-            // Auto-scroll al final
-            //container.scrollTop = container.scrollHeight;
+        }
+
+        function escapeHtml(str) {
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;');
         }
 
         document.getElementById('agentFilter').oninput = () => {
-            if(fullData) updateSidebar(fullData.memory);
+            if (fullData) updateSidebar(fullData.memory);
         };
 
-        socket.onclose = () => console.log("Conexión cerrada");
+        socket.onclose = () => console.log('Conexión cerrada');
     </script>
 </body>
 </html>

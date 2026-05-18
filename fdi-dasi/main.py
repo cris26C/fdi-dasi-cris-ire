@@ -20,16 +20,18 @@ import random
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Initialize once
     logger.info(f"Initializing {config.AGENT_NAME}...")
-    # app.state.orch = Orchestrator()
-    # Parallelizar la creación del agente y envío de mensaje a multiples agentes
     app.state.agent = Agent(config.AGENT_NAME)
-    asyncio.create_task(create_agent_and_connect(app.state.agent, config.AGENT_NAME))
+    task = asyncio.create_task(create_agent_and_connect(app.state.agent, config.AGENT_NAME))
 
     yield
 
     logger.info(f"{config.AGENT_NAME} shutting down...")
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
 
 app = FastAPI(lifespan=lifespan)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
