@@ -1,27 +1,22 @@
-import os
-from pathlib import Path
-
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, HTTPException, Request
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from schemas.agent_message import AgentMessage
-import asyncio
 from contextlib import asynccontextmanager
 from loguru import logger
 from core.config import config
-from services import (create_agent_and_connect, 
-                      get_alias_by_ip,
-                      get_actual_resources_and_objectives,
-                      Agent)
+from services import ButlerService, Agent
 import uvicorn 
-
-
+import asyncio
+import os
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info(f"Initializing {config.AGENT_NAME}...")
-    app.state.agent = Agent(config.AGENT_NAME)
-    task = asyncio.create_task(create_agent_and_connect(app.state.agent, config.AGENT_NAME))
+    butler_service = ButlerService()
+    app.state.butler_service = butler_service
+    app.state.agent = Agent(config.AGENT_NAME, butler_service)
+    task = asyncio.create_task(butler_service.create_agent_and_connect(app.state.agent, config.AGENT_NAME))
 
     yield
 
@@ -54,7 +49,7 @@ async def receive_message(
     try:
         msg = agent_message.msg
         client_host = request.client.host # type: ignore
-        alias = get_alias_by_ip(client_host)
+        alias = ButlerService.get_alias_by_ip(client_host)
         logger.info(f"Recepción de mensaje desde [{alias}]: {msg}")
 
         agent: Agent = app.state.agent
@@ -73,8 +68,9 @@ async def websocket_endpoint(websocket: WebSocket):
     try:
         while True:
             agent: Agent = app.state.agent
+            butler_service: ButlerService = app.state.butler_service
             memory = agent.get_memory()
-            resources = get_actual_resources_and_objectives()
+            resources = butler_service.get_actual_resources_and_objectives()
             data = {
                 "agent_name": agent.name,
                 "memory": memory,

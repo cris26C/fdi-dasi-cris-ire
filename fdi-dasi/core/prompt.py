@@ -1,71 +1,35 @@
-"""Plantillas de prompt para el agente negociador.
-
-El LLM decide qué herramienta llamar (send_package o send_message_to_alias)
-basándose en sus recursos y en el mensaje del partner. Los ejemplos en el
-prompt usan los nombres reales de los recursos para que el modelo pueda
-ver el patrón.
-"""
-
-
 GREETING_PROMPT = """
-Eres {my_name}, un comerciante.
+Eres {my_name}, comerciante. Saludas a {alias} por primera vez.
 
-Hablas en español.
-Tus mensajes son cortos y naturales.
+Tienes DE SOBRA: {surplus}
+Necesitas RECIBIR: {missing}
 
-Siempre debes usar herramientas.
-En este turno usa send_message_to_alias.
+Escribe exactamente este formato (cambia los recursos):
+"Hola {alias}, tengo {ex_surplus} de sobra y necesito {ex_missing}. Te doy 1 {ex_surplus} por 1 {ex_missing}, ¿aceptas?"
 
-No uses JSON.
-No uses send_package.
-Solo una acción por turno.
+Usa send_message_to_alias. Máximo 20 palabras. Solo español simple.
 """
 
 
 NEGOTIATOR_PROMPT = """
-Eres {my_name}, un comerciante negociando con {alias}.
+Eres {my_name}, comerciante. Negocias con {alias}. Quedan {remaining} turnos.
 
-Quedan {remaining} turnos.
+Tienes DE SOBRA: {surplus}
+Necesitas RECIBIR: {missing}
 
-Tus recursos sobrantes:
-{surplus}
-
-Tus recursos faltantes:
-{missing}
-
-Herramientas:
-- send_message_to_alias
-- send_package
-
-IMPORTANTE:
-Usa send_package INMEDIATAMENTE si el último mensaje de {alias}:
-- acepta tu propuesta
-- dice "acepto"
-- dice "trato"
-- dice "de acuerdo"
-- dice "hagamos trato"
-- ofrece uno de tus faltantes
-- pide uno de tus sobrantes
-
-Si ocurre cualquiera de esos casos:
-USA send_package.
-NO sigas negociando.
-
-Si NO hay acuerdo:
-usa send_message_to_alias.
-
-Reglas:
-- Solo puedes enviar recursos de {surplus}
-- Solo puedes pedir recursos de {missing}
-- No repitas la misma propuesta
-- Usa mensajes cortos y naturales
-- Habla en primera persona
-
-Ejemplo de mensaje:
+FORMATO OBLIGATORIO de tus mensajes:
 "Te doy 1 {ex_surplus} por 1 {ex_missing}, ¿aceptas?"
+Máximo 12 palabras. Sin preguntas sueltas. Sin repetir lo que dijo {alias}.
 
-Ejemplo de cierre:
-send_package(alias="{alias}", package={{"{ex_surplus}": 1}})
+CUÁNDO usar send_package (cerrar trato):
+Si {alias} dijo "acepto", "trato", "de acuerdo", o "te doy [algo de {missing}]".
+También si {alias} pidió un recurso de tus sobrantes ({surplus}) con señal de oferta ("te doy", "cambio", "ofrezco").
+
+CUÁNDO usar send_message_to_alias (proponer):
+En todos los demás casos. Siempre incluye tu oferta concreta.
+
+DAR solo de: {surplus}
+PEDIR solo de: {missing}
 """
 
 
@@ -79,8 +43,9 @@ def get_tools(alias: str, surplus_names: list = None, missing_names: list = None
     if surplus_names:
         package_props = {k: {"type": "integer", "enum": [1]} for k in surplus_names}
         package_desc = (
-            f"Un solo recurso con valor 1. La clave DEBE ser una de: {', '.join(surplus_names)}. "
-            f"Ejemplo: {{\"{ex_s}\": 1}}"
+            f"Objeto con UN recurso y valor 1. La clave DEBE ser una de: {', '.join(surplus_names)}. "
+            f"Ejemplo: {{\"{ex_s}\": 1}}. "
+            f"NO uses string, NO uses comillas alrededor del objeto."
         )
     else:
         package_props = {}

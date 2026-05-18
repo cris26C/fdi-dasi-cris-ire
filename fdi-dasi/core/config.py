@@ -14,7 +14,8 @@ class Config(BaseSettings):
     EXTERNAL_AGENT_PORT: int = 7720
     OLLAMA_HOST: str = ""
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
-
+    MAX_NEGOTIATION_TURNS: int = 5
+    MAX_RESUME_MEMORY: int = 3
     @model_validator(mode="after")
     def set_url_based_on_mode(self) -> "Config":
         """Dynamically set the URL_BUTLER_SERVER based on the current MODE."""

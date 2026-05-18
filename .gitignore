@@ -152,3 +152,6 @@ estado_butler.json
 ollama-linux/
 ollama-linux-amd64.tar.zst
 fdi-dasi/ollama-linux-amd64.tar.zst
+
+/fdi-dasi/packages/
+.claude

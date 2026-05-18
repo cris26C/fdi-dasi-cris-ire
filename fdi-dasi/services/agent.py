@@ -1,41 +1,17 @@
 from typing import Optional
+from datetime import datetime
+from loguru import logger
+from ollama import AsyncClient
+from core.config import config
+from services.memory import Memory, active_sessions
+from core.prompt import GREETING_PROMPT, NEGOTIATOR_PROMPT, get_tools
+from services.butler_service import ButlerService
 import asyncio
 import random
 import re
 import traceback
-from datetime import datetime
-
-from loguru import logger
-from ollama import AsyncClient
-
-from core.config import config
-from services.memory import Memory, active_sessions
-from core.prompt import GREETING_PROMPT, NEGOTIATOR_PROMPT, get_tools
-from services.butler_service import (
-    MAX_NEGOTIATION_TURNS, send_message_to_alias, send_package,
-    get_actual_resources_and_objectives, _sanitize_mensaje,
-)
-
 
 FAREWELL_MARKER = '[[CICLO_CERRADO]]'
-_ollama_client: Optional[AsyncClient] = None
-
-def get_ollama_client() -> AsyncClient:
-    """Get or create Ollama AsyncClient. Recreates on connection errors."""
-    global _ollama_client
-    if _ollama_client is None:
-        logger.info(f"Creating new Ollama client for {config.OLLAMA_HOST}")
-        _ollama_client = AsyncClient(host=config.OLLAMA_HOST)
-    return _ollama_client
-
-
-def reset_ollama_client():
-    """Reset global Ollama client on connection failure. Next call will create fresh."""
-    global _ollama_client
-    if _ollama_client is not None:
-        logger.warning(f"Resetting stale Ollama client (was {config.OLLAMA_HOST})")
-        _ollama_client = None
-
 
 def _normalize(text: str) -> str:
     s = (text or '').lower()
@@ -46,14 +22,27 @@ def _normalize(text: str) -> str:
 class Agent:
     _ERROR_LOG_MAX = 100  # tope del buffer circular
 
-    def __init__(self, name: str):
+    def __init__(self, name: str, butler_service: ButlerService):
         self.name = name
+        self._butler = butler_service
+        self._ollama_client: Optional[AsyncClient] = None
         self.memory = Memory()
         self._initiated: set = set()
         self._turns: dict = {}
         self._locks: dict = {}
         self._prompt_history: dict = {}
         self._errors: list = []  # buffer circular de errores para el dashboard
+
+    def _get_ollama_client(self) -> AsyncClient:
+        if self._ollama_client is None:
+            logger.info(f"Creating new Ollama client for {config.OLLAMA_HOST}")
+            self._ollama_client = AsyncClient(host=config.OLLAMA_HOST)
+        return self._ollama_client
+
+    def _reset_ollama_client(self):
+        if self._ollama_client is not None:
+            logger.warning(f"Resetting stale Ollama client (was {config.OLLAMA_HOST})")
+            self._ollama_client = None
 
     @property
     def _initiated_aliases(self):  # compat con butler_service
@@ -166,7 +155,7 @@ class Agent:
         self._turns[alias] = self._turns.get(alias, 0) + 1
         turns = self._turns[alias]
 
-        if turns > MAX_NEGOTIATION_TURNS:
+        if turns >= config.MAX_NEGOTIATION_TURNS:
             logger.warning(f"[{self.name}] Limite de turnos con '{alias}'.")
             await self._send_farewell(alias, None)
             return
@@ -191,7 +180,10 @@ class Agent:
             ex_surplus=ex_s, ex_missing=ex_m,
         )
         tools = get_tools(alias, surplus_names=surplus, missing_names=missing, greeting=True)
+        context = await self._build_context(alias)
+        context_block = f"{context}\n\n" if context else ""
         user_prompt = (
+            f"{context_block}"
             f"Negocia con {alias}. "
             f"Tus sobrantes: {', '.join(surplus)}. "
             f"Tus faltantes: {', '.join(missing) or 'ninguno'}. "
@@ -216,7 +208,7 @@ class Agent:
 
     async def _negotiate(self, alias: str, incoming: str, turns: int):
         surplus, missing = self._get_resources()
-        remaining = max(0, MAX_NEGOTIATION_TURNS - turns)
+        remaining = max(0, config.MAX_NEGOTIATION_TURNS - turns)
 
         if not surplus:
             logger.warning(f"[{self.name}] Sin sobrantes — despedida.")
@@ -227,34 +219,56 @@ class Agent:
             await self._send_farewell(alias, None)
             return
 
-        # Ejemplos del prompt: usamos el primer sobrante/faltante. No es una propuesta forzada,
-        # solo un patrón para que el modelo entienda el formato.
-        ex_s = surplus[0]
-        ex_m = missing[0]
+        ex_s, ex_m = surplus[0], missing[0]
+        incoming_low = _normalize(incoming)
+
+        # Detect closeable offer: parse "te doy X por Y" directionally.
+        # Y (after "por") = requested FROM us → check against our surplus.
+        # X (after "te doy") = offered TO us → check against our faltante.
+        _offer_signals = ['te doy', 'acepto', 'trato', 'de acuerdo', 'ofrezco', 'cambio']
+        has_offer = any(s in incoming_low for s in _offer_signals)
+        _rm = re.search(r'\bpor\s+(?:\d+\s+)?(?:de\s+\w+\s+)?(\w+)', incoming, re.IGNORECASE)
+        _om = re.search(r'(?:te\s+doy|ofrezco)\s+(?:\d+\s+)?(?:de\s+\w+\s+)?(\w+)', incoming, re.IGNORECASE)
+        requested_kw = _normalize(_rm.group(1)) if _rm else ''
+        offered_kw   = _normalize(_om.group(1)) if _om else ''
+
+        close_resource = None
+        if has_offer:
+            if requested_kw and any(_normalize(s) == requested_kw for s in surplus):
+                close_resource = requested_kw          # they ask for our surplus → give it
+            elif offered_kw and any(_normalize(m) == offered_kw for m in missing):
+                close_resource = ex_s                  # they offer our faltante → give first surplus
 
         prompt = NEGOTIATOR_PROMPT.format(
             my_name=self.name, alias=alias, remaining=remaining,
-            surplus=', '.join(surplus),
-            missing=', '.join(missing),
+            surplus=', '.join(surplus), missing=', '.join(missing),
             ex_surplus=ex_s, ex_missing=ex_m,
         )
-        tools = get_tools(alias, surplus_names=surplus, missing_names=missing)
 
-        # `incoming` ya es el texto plano que el otro agente acaba de enviar
-        # (parámetro de _negotiate). Usarlo directamente evita el bug de serializar
-        # un dict {role, content} dentro de la f-string.
-        user_prompt = (
-            f"Último mensaje de {alias}: \"{incoming}\". "
-            f"Decide si debes cerrar el trato con send_package "
-            f"o responder con send_message_to_alias."
-        )
-        logger.info(f"[{self.name} >> {alias}] ")
-        logger.info(f"[{self.name} >> {alias}] User prompt: {user_prompt}")
+        if close_resource:
+            # Only send_package available — LLM cannot escape into another proposal.
+            tools = [t for t in get_tools(alias, surplus_names=[close_resource], missing_names=missing)
+                     if t['function']['name'] == 'send_package']
+            user_prompt = (
+                f"Mensaje de {alias}: \"{incoming}\"\n"
+                f"CIERRA EL TRATO. Llama:\n"
+                f"send_package(alias=\"{alias}\", package={{\"{close_resource}\": 1}})"
+            )
+        else:
+            tools = get_tools(alias, surplus_names=surplus, missing_names=missing)
+            context = await self._build_context(alias)
+            context_block = f"{context}\n\n" if context else ""
+            user_prompt = (
+                f"{context_block}"
+                f"Mensaje de {alias}: \"{incoming}\"\n"
+                f"Propón: \"Te doy 1 {ex_s} por 1 {ex_m}, ¿aceptas?\""
+            )
+
+        logger.info(f"[{self.name} >> {alias}] close_resource={close_resource!r} user_prompt={user_prompt!r}")
         messages = [
             {"role": "system", "content": prompt},
-            {"role": "user", "content": user_prompt},
+            {"role": "user",   "content": user_prompt},
         ]
-
 
         response = await self._call_llm(messages, tools)
         result = await self._handle_tool_call(response, alias, surplus, missing, incoming)
@@ -263,51 +277,43 @@ class Agent:
         if result['ok']:
             return
 
-        # Reintento con nudge específico al motivo del fallo.
-        rejected = result.get('rejected_text', '')
-        reason = result.get('reason', 'desconocido')
+        # Progressive retries: each attempt gets a more explicit nudge.
+        # Each retry starts from the original messages (not chained) to avoid context bloat.
+        for attempt in range(1, 4):
+            reason = result.get('reason', 'desconocido')
+            if close_resource:
+                nudge = [
+                    f"Llama send_package(alias=\"{alias}\", package={{\"{close_resource}\": 1}}). Solo eso.",
+                    f"OBLIGATORIO send_package: alias=\"{alias}\", package={{\"{close_resource}\": 1}}. Sin texto.",
+                    f"Tool call AHORA — send_package, alias={alias!r}, package={{\"{close_resource}\": 1}}.",
+                ][attempt - 1]
+            elif reason in ('echo', 'no_target_resource'):
+                nudge = [
+                    f"Nueva oferta: \"Te doy 1 {ex_s} por 1 {ex_m}, ¿aceptas?\"",
+                    f"send_message_to_alias(alias=\"{alias}\", mensaje=\"Te doy 1 {ex_s} por 1 {ex_m}, ¿aceptas?\").",
+                    f"OBLIGATORIO send_message_to_alias: alias=\"{alias}\", mensaje=\"Te doy 1 {ex_s} por 1 {ex_m}\".",
+                ][attempt - 1]
+            else:
+                nudge = [
+                    f"Llama send_message_to_alias: \"Te doy 1 {ex_s} por 1 {ex_m}, ¿aceptas?\"",
+                    f"send_message_to_alias(alias=\"{alias}\", mensaje=\"Te doy 1 {ex_s} por 1 {ex_m}, ¿aceptas?\").",
+                    f"OBLIGATORIO send_message_to_alias: alias=\"{alias}\", mensaje=\"Te doy 1 {ex_s} por 1 {ex_m}\".",
+                ][attempt - 1]
 
-        if reason == 'echo' and rejected:
-            nudge = (
-                f"RECHAZO: copiaste textualmente a {alias}. "
-                f"PROHIBIDO repetir esta frase: \"{rejected}\". "
-                f"Genera una contraoferta DISTINTA: cambia el sobrante que ofreces o el faltante que pides. "
-                f"Recuerda: ofreces algo de {surplus}, pides algo de {missing}."
-            )
-        elif reason == 'no_target_resource':
-            nudge = (
-                f"RECHAZO: tu mensaje no pedía un faltante. Solo puedes pedir recursos de {missing}. "
-                f"Llama send_message_to_alias con un mensaje donde \"de tus X\" tenga X ∈ {missing}."
-            )
-        elif reason == 'package_invalido':
-            nudge = (
-                f"RECHAZO: el package no era válido. La clave DEBE ser uno de {surplus}. "
-                f"Llama de nuevo send_package(alias=\"{alias}\", package={{\"<sobrante>\": 1}}) "
-                f"donde <sobrante> ∈ {surplus}."
-            )
-        elif reason == 'no_tool_call':
-            nudge = (
-                f"RECHAZO: no llamaste ninguna herramienta. DEBES llamar una: "
-                f"send_package o send_message_to_alias. No escribas texto suelto."
-            )
-        else:
-            nudge = (
-                f"RECHAZO: respuesta inválida ({reason}). "
-                f"Elige una herramienta (send_package o send_message_to_alias) y llámala respetando las reglas."
-            )
-        logger.warning(f"[{self.name} >> {alias}] Reintento (motivo={reason}).")
-        retry_messages = messages + [{"role": "user", "content": nudge}]
-        response = await self._call_llm(retry_messages, tools)
-        result2 = await self._handle_tool_call(response, alias, surplus, missing, incoming)
-        self._record_llm_call(alias, "negotiation_retry", retry_messages, response,
-                              validation=result2.get('reason'), executed=result2['ok'])
-        if not result2['ok']:
-            self.log_error(
-                "turn_lost",
-                f"LLM falló tras reintento. Motivo: {result2.get('reason')}. "
-                f"Primer intento: {reason}. Rechazado: {rejected!r}",
-                alias=alias,
-            )
+            logger.warning(f"[{self.name} >> {alias}] Reintento {attempt}/3 (motivo={reason}).")
+            retry_messages = messages + [{"role": "user", "content": nudge}]
+            response = await self._call_llm(retry_messages, tools)
+            result = await self._handle_tool_call(response, alias, surplus, missing, incoming)
+            self._record_llm_call(alias, f"negotiation_retry_{attempt}", retry_messages, response,
+                                  validation=result.get('reason'), executed=result['ok'])
+            if result['ok']:
+                return
+
+        self.log_error(
+            "turn_lost",
+            f"LLM falló tras 3 reintentos. Último motivo: {result.get('reason')} close_resource={close_resource!r}",
+            alias=alias,
+        )
 
     async def _handle_tool_call(self, response, alias: str, surplus: list, missing: list, incoming: Optional[str]) -> dict:
         """Ejecuta el primer tool-call válido. Devuelve {ok, reason, rejected_text?}."""
@@ -340,6 +346,14 @@ class Agent:
     async def _exec_package(self, tc, alias: str, surplus: list) -> dict:
         args = dict(tc.function.arguments)
         pkg = args.get('package')
+        # Small models sometimes serialize the package as a JSON string instead of an object.
+        if isinstance(pkg, str):
+            import json as _json
+            try:
+                pkg = _json.loads(pkg)
+                logger.warning(f"[{self.name} >> {alias}] package era string, parseado a dict: {pkg}")
+            except Exception:
+                pass
         if not isinstance(pkg, dict):
             logger.warning(f"[{self.name} >> {alias}] package no es dict: {pkg!r}")
             return {'ok': False, 'reason': 'package_no_dict'}
@@ -352,7 +366,7 @@ class Agent:
         give = valid_keys[0]
         final_pkg = {give: 1}
         logger.info(f"[{self.name} >> {alias}] LLM ejecuta send_package({final_pkg})")
-        await send_package(alias, final_pkg)
+        await self._butler.send_package(alias, final_pkg)
         # Log con el formato que el dashboard reconoce como evento de paquete.
         self.memory.add_message(alias, "system", f"[Paquete enviado a {alias}: {final_pkg}]")
         await self._send_farewell(alias, final_pkg)
@@ -361,7 +375,7 @@ class Agent:
     async def _exec_message_text(self, mensaje, alias: str, missing: Optional[list], incoming: Optional[str]) -> dict:
         if not isinstance(mensaje, str):
             return {'ok': False, 'reason': 'mensaje_no_string'}
-        clean = _sanitize_mensaje(mensaje)
+        clean = self._butler._sanitize_mensaje(mensaje)
         if not clean:
             logger.warning(f"[{self.name} >> {alias}] mensaje irrecuperable: {mensaje!r}")
             return {'ok': False, 'reason': 'mensaje_irrecuperable', 'rejected_text': mensaje[:200]}
@@ -377,7 +391,7 @@ class Agent:
                 logger.warning(f"[{self.name} >> {alias}] mensaje no pide ningún faltante {missing}: {clean!r}")
                 return {'ok': False, 'reason': 'no_target_resource', 'rejected_text': clean}
         logger.info(f"[{self.name} >> {alias}] LLM ejecuta send_message: {clean!r}")
-        await send_message_to_alias(alias, clean)
+        await self._butler.send_message_to_alias(alias, clean)
         self.memory.add_message(alias, "assistant", clean)
         return {'ok': True, 'reason': 'message'}
 
@@ -398,7 +412,7 @@ class Agent:
         else:
             text = "No logramos cerrar trato esta vez. Nos vemos en la proxima!"
         try:
-            await send_message_to_alias(alias, f"{text} {FAREWELL_MARKER}")
+            await self._butler.send_message_to_alias(alias, f"{text} {FAREWELL_MARKER}")
         except Exception as e:
             self.log_error("farewell_failed", f"{type(e).__name__}: {e}", alias=alias)
         self.memory.add_message(alias, "assistant", text)
@@ -411,8 +425,57 @@ class Agent:
         self.memory.mark_cycle_boundary(alias)
         active_sessions.pop(alias, None)
 
+    async def _build_context(self, alias: str) -> str:
+        """Return conversation history as a compact text block for the prompt.
+
+        Formats the last exchanges directly if there are 5 or fewer.
+        Beyond 5, asks the LLM for a 2-3 sentence summary so the small model
+        is not overwhelmed and can still focus on closing the trade.
+        """
+        history = self.memory.get_history(alias)
+        exchanges = [m for m in history if m['role'] in ('user', 'assistant')]
+        if not exchanges:
+            return ""
+
+        def _fmt(msgs: list) -> str:
+            lines = []
+            for m in msgs:
+                speaker = alias if m['role'] == 'user' else self.name
+                lines.append(f"{speaker}: {m['content']}")
+            return "\n".join(lines)
+
+        if len(exchanges) <= config.MAX_RESUME_MEMORY:
+            return f"Historial de la negociación:\n{_fmt(exchanges)}"
+
+        # Summarize with LLM — keep the prompt very short for llama3.2:3b
+        transcript = _fmt(exchanges)
+        summary_msgs = [
+            {
+                "role": "system",
+                "content": (
+                    f"Eres un asistente que resume negociaciones. "
+                    f"Resume en máximo 3 frases cortas en español la negociación entre {self.name} y {alias}. "
+                    f"Incluye: qué recursos se ofrecieron, si hubo acuerdo parcial, y qué falta para cerrar el trato. "
+                    f"Solo el resumen, sin explicaciones ni saludos."
+                ),
+            },
+            {
+                "role": "user",
+                "content": f"Conversación:\n{transcript}\n\nResumen:",
+            },
+        ]
+        response = await self._call_llm(summary_msgs, tools=[])
+        if response and getattr(response.message, 'content', None):
+            summary = response.message.content.strip()
+            logger.info(f"[{self.name}] Contexto resumido para '{alias}': {summary!r}")
+            return f"Resumen de lo negociado hasta ahora:\n{summary}"
+
+        # Fallback: keep the 5 most recent exchanges
+        logger.warning(f"[{self.name}] Resumen de contexto falló — usando últimos {config.MAX_RESUME_MEMORY} mensajes.")
+        return f"Últimos mensajes:\n{_fmt(exchanges[-config.MAX_RESUME_MEMORY:])}"
+
     def _get_resources(self) -> tuple:
-        resources = get_actual_resources_and_objectives()
+        resources = self._butler.get_actual_resources_and_objectives()
         surplus = [k for k, v in resources['sobrante'].items() if v > 0]
         missing = [k for k, v in resources['faltante'].items() if v > 0]
         return surplus, missing
@@ -425,25 +488,23 @@ class Agent:
         for attempt in range(1, max_retries + 1):
             try:
                 # Get fresh client in case previous one was stale
-                client = get_ollama_client()
+                client = self._get_ollama_client()
                 response = await asyncio.wait_for(client.chat(**kwargs), timeout=120.0)
                 return response
             except asyncio.TimeoutError:
                 last_err = "timeout (>120s)"
-                # Reset client on timeout in case connection is stuck
-                reset_ollama_client()
+                self._reset_ollama_client()
                 delay = 2 ** attempt + random.uniform(0, 2)
                 logger.warning(f"[{self.name}] Ollama timeout {attempt}/{max_retries}; reintento en {delay:.1f}s")
             except (ConnectionError, ConnectionRefusedError, ConnectionResetError) as e:
                 last_err = f"{type(e).__name__}: {e}"
-                reset_ollama_client()
+                self._reset_ollama_client()
                 delay = 2 ** attempt + random.uniform(0, 2)
                 logger.warning(f"[{self.name}] Ollama connection error {attempt}/{max_retries}: {last_err}; reintento en {delay:.1f}s")
             except Exception as e:
                 last_err = f"{type(e).__name__}: {e}"
-                # On protocol errors (RemoteProtocolError), reset client
                 if "RemoteProtocol" in type(e).__name__ or "disconnected" in str(e).lower():
-                    reset_ollama_client()
+                    self._reset_ollama_client()
                 delay = 2 ** attempt + random.uniform(0, 2)
                 logger.warning(f"[{self.name}] Ollama error {attempt}/{max_retries}: {last_err}; reintento en {delay:.1f}s")
             if attempt < max_retries:
