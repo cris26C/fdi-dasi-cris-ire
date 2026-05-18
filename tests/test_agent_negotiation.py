@@ -22,77 +22,66 @@ from conftest import (
 pytestmark = pytest.mark.asyncio
 
 class TestCloseResourceDetection:
-    """Verifica que el parser regex identifica correctamente cuándo cerrar."""
-
-    def _close_resource_for(self, incoming: str, surplus: list, missing: list) -> str | None:
-        """Extrae close_resource usando la misma lógica que _negotiate."""
-        import re
-        from services.agent import _normalize
-
-        incoming_low = _normalize(incoming)
-        offer_signals = ['te doy', 'acepto', 'trato', 'de acuerdo', 'ofrezco', 'cambio']
-        has_offer = any(s in incoming_low for s in offer_signals)
-
-        rm = re.search(r'\bpor\s+(?:\d+\s+)?(?:de\s+\w+\s+)?(\w+)', incoming, re.IGNORECASE)
-        om = re.search(r'(?:te\s+doy|ofrezco)\s+(?:\d+\s+)?(?:de\s+\w+\s+)?(\w+)', incoming, re.IGNORECASE)
-        requested_kw = _normalize(rm.group(1)) if rm else ''
-        offered_kw   = _normalize(om.group(1)) if om else ''
-
-        if has_offer:
-            if requested_kw and any(_normalize(s) == requested_kw for s in surplus):
-                return requested_kw
-            if offered_kw and any(_normalize(m) == offered_kw for m in missing):
-                return surplus[0] if surplus else None
-        return None
+    """Verifica que detect_close_resource identifica correctamente cuándo cerrar."""
 
     def test_cierra_cuando_piden_nuestro_sobrante(self):
-        # "por 1 aceite" → aceite está en nuestro surplus → cerrar dando aceite
-        result = self._close_resource_for(
-            "Te doy 1 queso por 1 aceite, ¿aceptas?",
-            surplus=["aceite"], missing=["queso"]
-        )
+        from core.negotiation import detect_close_resource
+        result = detect_close_resource("Te doy 1 queso por 1 aceite, ¿aceptas?",
+                                       surplus=["aceite"], missing=["queso"])
         assert result == "aceite"
 
     def test_cierra_cuando_ofrecen_nuestro_faltante(self):
-        # "te doy 1 queso" → queso está en nuestro faltante → cerrar dando primer surplus
-        result = self._close_resource_for(
-            "Te doy 1 queso por 1 de tus aceite, ¿aceptas?",
-            surplus=["aceite"], missing=["queso"]
-        )
+        from core.negotiation import detect_close_resource
+        result = detect_close_resource("Te doy 1 queso por 1 de tus aceite, ¿aceptas?",
+                                       surplus=["aceite"], missing=["queso"])
         assert result == "aceite"
 
     def test_no_cierra_sin_señal_de_oferta(self):
-        result = self._close_resource_for(
-            "¿Qué tienes de sobra?",
-            surplus=["aceite"], missing=["queso"]
-        )
+        from core.negotiation import detect_close_resource
+        result = detect_close_resource("¿Qué tienes de sobra?",
+                                       surplus=["aceite"], missing=["queso"])
         assert result is None
 
     def test_no_cierra_cuando_recursos_no_coinciden(self):
-        # gato tiene aceite, le falta queso; perro ofrece trigo por madera → sin match
-        result = self._close_resource_for(
-            "Te doy 1 trigo por 1 madera, ¿aceptas?",
-            surplus=["aceite"], missing=["queso"]
-        )
+        from core.negotiation import detect_close_resource
+        result = detect_close_resource("Te doy 1 trigo por 1 madera, ¿aceptas?",
+                                       surplus=["aceite"], missing=["queso"])
         assert result is None
 
     def test_no_falso_positivo_recurso_en_posicion_incorrecta(self):
-        # "te doy 1 aceite por 1 trigo" → aceite está en surplus PERO se está OFRECIENDO
-        # a nosotros (no se está pidiendo de nosotros) → no debe cerrar por surplus
-        result = self._close_resource_for(
-            "Te doy 1 aceite por 1 trigo, ¿aceptas?",
-            surplus=["aceite"], missing=["queso"]
-        )
-        # aceite está en surplus pero la oferta no cuadra (trigo no es nuestro surplus)
-        # y aceite no es nuestro faltante
+        from core.negotiation import detect_close_resource
+        # aceite en surplus pero se está OFRECIENDO (no pidiendo) → no debe cerrar
+        result = detect_close_resource("Te doy 1 aceite por 1 trigo, ¿aceptas?",
+                                       surplus=["aceite"], missing=["queso"])
         assert result is None
 
     def test_cierra_con_formato_de_tus(self):
-        result = self._close_resource_for(
-            "Te doy 1 queso por 1 de tus aceite, ¿aceptas?",
-            surplus=["aceite"], missing=["queso"]
-        )
+        from core.negotiation import detect_close_resource
+        result = detect_close_resource("Te doy 1 queso por 1 de tus aceite, ¿aceptas?",
+                                       surplus=["aceite"], missing=["queso"])
         assert result == "aceite"
+
+    def test_cierra_con_acepto_directo(self):
+        from core.negotiation import detect_close_resource
+        result = detect_close_resource("acepto", surplus=["aceite"], missing=["queso"])
+        assert result == "aceite"
+
+    def test_cierra_con_trato(self):
+        from core.negotiation import detect_close_resource
+        result = detect_close_resource("trato hecho", surplus=["aceite"], missing=["queso"])
+        assert result == "aceite"
+
+    def test_no_cierra_con_no_acepto(self):
+        from core.negotiation import detect_close_resource
+        result = detect_close_resource("no acepto ese trato", surplus=["aceite"], missing=["queso"])
+        assert result is None
+
+    def test_no_cierra_oferta_desfavorable(self):
+        from core.negotiation import detect_close_resource
+        # Perro ofrece arroz por queso — gato tiene oro, necesita queso: trato NO es favorable
+        result = detect_close_resource("Te doy 1 arroz por 1 queso, ¿aceptas?",
+                                       surplus=["oro"], missing=["queso"])
+        assert result is None
 
 
 
@@ -227,6 +216,55 @@ class TestMaxTurns:
             await agent._handle("perro", "Un mensaje más")
 
         mock_llm.assert_not_called()
+
+class TestIncompatibleLoop:
+
+    async def test_despedida_tras_dos_ofertas_incompatibles(self, agent, mock_butler):
+        """Después de 2 mensajes con señal de oferta pero sin faltante → farewell sin LLM."""
+        incompatible_msg = "Te doy 1 trigo por 1 madera, ¿aceptas?"  # gato necesita queso, no madera
+        response = make_llm_response_message("Te doy 1 aceite por 1 queso, ¿aceptas?", alias="perro")
+
+        with patch.object(agent, '_call_llm', return_value=response):
+            await agent._negotiate("perro", incompatible_msg, turns=1)  # count → 1, no farewell yet
+            await agent._negotiate("perro", incompatible_msg, turns=2)  # count → 2, farewell
+
+        farewell_calls = [
+            c for c in mock_butler.send_message_to_alias.call_args_list
+            if "[[CICLO_CERRADO]]" in str(c)
+        ]
+        assert len(farewell_calls) >= 1
+
+    async def test_no_despedida_en_primera_oferta_incompatible(self, agent, mock_butler):
+        """La primera oferta incompatible solo avisa al LLM — no cierra el ciclo."""
+        incompatible_msg = "Te doy 1 trigo por 1 madera, ¿aceptas?"
+        response = make_llm_response_message("Te doy 1 aceite por 1 queso, ¿aceptas?", alias="perro")
+
+        with patch.object(agent, '_call_llm', return_value=response):
+            await agent._negotiate("perro", incompatible_msg, turns=1)
+
+        farewell_calls = [
+            c for c in mock_butler.send_message_to_alias.call_args_list
+            if "[[CICLO_CERRADO]]" in str(c)
+        ]
+        assert len(farewell_calls) == 0
+
+    async def test_resetea_contador_cuando_oferta_es_compatible(self, agent, mock_butler):
+        """Una oferta compatible entre dos incompatibles resetea el contador."""
+        incompat = "Te doy 1 trigo por 1 madera, ¿aceptas?"
+        compat   = "Te doy 1 queso por 1 aceite, ¿aceptas?"
+        response = make_llm_response_message("Te doy 1 aceite por 1 queso, ¿aceptas?", alias="perro")
+
+        with patch.object(agent, '_call_llm', return_value=response):
+            await agent._negotiate("perro", incompat,  turns=1)  # count → 1
+            await agent._negotiate("perro", compat,    turns=2)  # compatible → count reset to 0
+            await agent._negotiate("perro", incompat,  turns=3)  # count → 1, no farewell
+
+        farewell_calls = [
+            c for c in mock_butler.send_message_to_alias.call_args_list
+            if "[[CICLO_CERRADO]]" in str(c)
+        ]
+        assert len(farewell_calls) == 0  # still only 1 incompatible after reset
+
 
 class TestGreeting:
 

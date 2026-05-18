@@ -79,25 +79,20 @@ class TestDashboard:
 
 class TestBuzon:
 
-    def test_acepta_mensaje_y_devuelve_true(self, client):
+    def test_acepta_mensaje_y_devuelve_202(self, client):
         c, mock_agent, _ = client
         response = c.post("/buzon", json={"msg": "Te doy 1 queso por 1 aceite, ¿aceptas?"})
-        assert response.status_code == 200
-        assert response.json() is True
+        assert response.status_code == 202
+        assert response.json()["status"] == "accepted"
 
     def test_dispara_agent_response(self, client):
         c, mock_agent, _ = client
         c.post("/buzon", json={"msg": "Hola gato"})
-
-        # Damos tiempo al asyncio.create_task para ejecutarse
-        import time; time.sleep(0.05)
         mock_agent.response.assert_called_once()
 
     def test_pasa_alias_correcto_a_response(self, client):
         c, mock_agent, _ = client
         c.post("/buzon", json={"msg": "Hola"})
-        import time; time.sleep(0.05)
-
         call_args = mock_agent.response.call_args
         alias_arg = call_args.args[0] if call_args.args else call_args.kwargs.get("alias")
         assert alias_arg == "perro"

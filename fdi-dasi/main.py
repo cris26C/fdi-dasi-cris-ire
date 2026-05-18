@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, HTTPException, Request
+from fastapi import FastAPI, WebSocket, Request, BackgroundTasks, HTTPException, Depends, WebSocketDisconnect, status
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from schemas.agent_message import AgentMessage
@@ -6,9 +6,13 @@ from contextlib import asynccontextmanager
 from loguru import logger
 from core.config import config
 from services import ButlerService, Agent
-import uvicorn 
+import uvicorn
 import asyncio
 import os
+
+def get_current_agent(request: Request) -> 'Agent':
+    return request.app.state.agent
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -26,41 +30,43 @@ async def lifespan(app: FastAPI):
         await task
     except asyncio.CancelledError:
         pass
-
+    
 app = FastAPI(lifespan=lifespan)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "static")), name="static")
 templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
 
+
 @app.get("/")
 async def root(request: Request):
-    return templates.TemplateResponse(
-        request,             # El request va primero ahora
-        "index.html",        # El nombre del archivo después
-        {"user_name": "USUARIO"} # Y el contexto (sin meter el request dentro)
-    )
+    return templates.TemplateResponse(request, "index.html", {"user_name": "USUARIO"})
 
-@app.post("/buzon")
+@app.post("/buzon", status_code=status.HTTP_202_ACCEPTED)
 async def receive_message(
     agent_message: AgentMessage, 
-    request: Request
-    ):
+    request: Request,
+    background_tasks: BackgroundTasks,
+    agent: 'Agent' = Depends(get_current_agent)
+):
     try:
         msg = agent_message.msg
-        client_host = request.client.host # type: ignore
+        client_host = request.client.host if request.client else "unknown"
+        
         alias = ButlerService.get_alias_by_ip(client_host)
-        logger.info(f"Recepción de mensaje desde [{alias}]: {msg}")
 
-        agent: Agent = app.state.agent
-        asyncio.create_task(agent.response(alias, msg))
-        logger.info(f">> {client_host} dice: {msg}")
-        return True
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail="Error")
-    
+        logger.info(f"Recepción de mensaje desde [{alias}] ({client_host}): {msg}")
+
+        background_tasks.add_task(agent.response, alias, msg)
+        
+        return {"status": "accepted", "detail": "Mensaje encolado para procesamiento"}
+        
+    except HTTPException:
+        raise 
+    except Exception:
+        logger.exception("Error al encolar el mensaje en el buzón")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                            detail="Error interno al procesar el mensaje")
 
 @app.websocket("/ws/stats")
 async def websocket_endpoint(websocket: WebSocket):

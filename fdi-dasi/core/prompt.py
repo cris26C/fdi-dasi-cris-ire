@@ -30,6 +30,9 @@ En todos los demás casos. Siempre incluye tu oferta concreta.
 
 DAR solo de: {surplus}
 PEDIR solo de: {missing}
+
+Si {alias} propone recursos que no están en {missing}, su oferta no te sirve.
+Insiste: "Te doy 1 {ex_surplus} por 1 {ex_missing}, ¿aceptas?"
 """
 
 
